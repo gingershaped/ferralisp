@@ -1,52 +1,38 @@
-use std::{collections::{HashMap, VecDeque}, error::Error, sync::LazyLock};
+use std::{collections::{HashMap, VecDeque}, sync::LazyLock};
 
-use crate::machine::{Machine, Value};
+use crate::machine::{Machine, Value, Error};
 
-
-#[derive(Debug)]
-pub enum BuiltinError<'a> {
-    MissingArgument {
-        name: &'static str,
-        expected_type: &'static str,
-    },
-    ExtraArguments(Vec<Value<'a>>),
-    WrongArgumentType {
-        name: &'static str,
-        expected_type: &'static str,
-        value: Value<'a>,
-    },
-    ExecutionFailed(Box<dyn Error>),
-}
 
 #[derive(Debug)]
 pub struct Builtin {
+    pub name: &'static str,
     pub is_macro: bool,
-    pub body: for <'a> fn(Vec<Value<'a>>, Machine<'a>) -> Result<Value<'a>, BuiltinError<'a>>,
+    pub body: for <'a> fn(VecDeque<Value<'a>>, &mut Machine<'a>) -> Result<Value<'a>, Error<'a>>,
 }
 
 macro_rules! builtin {
     (
-        fn $name:ident($($arg:tt)*) $body:block
+        fn $name:ident($($arg:tt)*) as $alias:ident $body:block
     ) => {
-        builtin_inner!($name, false, $($arg)*, $body)
+        builtin_inner!($alias, $name, false, $($arg)*, $body)
     };
     (
-        macro $name:ident($($arg:tt)*) $body:block
+        macro $name:ident($($arg:tt)*) as $alias:ident $body:block
     ) => {
-        builtin_inner!($name, true, $($arg)*, $body)
+        builtin_inner!($alias, $name, true, $($arg)*, $body)
     };
 }
 
 macro_rules! builtin_inner {
-    ($name:ident, $is_macro:literal, $($argname:ident: $argtype:tt),*, $body:block) => {
-        (stringify!($name), Builtin {
+    ($alias:ident, $name:ident, $is_macro:literal, $($argname:ident: $argtype:tt),*, $body:block) => {
+        (stringify!($alias), Builtin {
+            name: stringify!($name),
             is_macro: $is_macro,
             #[allow(unused_variables)]
-            body: |args, machine| {
-                let mut args = VecDeque::from(args);
+            body: |mut args, machine| {
                 $(builtin_argument!(args, $argname: $argtype);)*
-                if (!args.is_empty()) {
-                    Err(BuiltinError::ExtraArguments(args.into()))
+                if !args.is_empty() {
+                    Err(Error::ExtraArguments(args.into()))
                 } else {
                     $body
                 }
@@ -58,7 +44,7 @@ macro_rules! builtin_inner {
 macro_rules! builtin_argument {
     ($args:ident, $name:ident: any) => {
         #[allow(unused_mut)]
-        let mut $name = $args.pop_front().ok_or_else(|| BuiltinError::MissingArgument {
+        let mut $name = $args.pop_front().ok_or_else(|| Error::MissingArgument {
             name: stringify!($name),
             expected_type: "any",
         })?;
@@ -69,13 +55,13 @@ macro_rules! builtin_argument {
         let mut $name = match $args.pop_front() {
             Some(arg) => match arg {
                 $argtype(arg) => Ok(arg),
-                other => Err(BuiltinError::WrongArgumentType {
+                other => Err(Error::WrongBuiltinArgumentType {
                     name: stringify!($name),
                     expected_type: stringify!($argtype),
                     value: other,
                 }),
             },
-            None => Err(BuiltinError::MissingArgument {
+            None => Err(Error::MissingArgument {
                 name: stringify!($name),
                 expected_type: stringify!($argtype),
             }),
@@ -85,13 +71,13 @@ macro_rules! builtin_argument {
 
 pub static BUILTINS: LazyLock<HashMap<&'static str, Builtin>> = LazyLock::new(|| HashMap::from([
     builtin! {
-        fn c(value: any, list: List) {
-            list.push_front(value);
+        fn cons(value: any, list: List) as c {
+            list.borrow_mut().push_front(value);
             Ok(Value::List(list))
         }
     },
     builtin! {
-        macro q(thing: any) {
+        macro quote(thing: any) as q {
             Ok(thing)
         }
     },
