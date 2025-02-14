@@ -1,97 +1,69 @@
-use std::{cell::RefCell, collections::{HashMap, VecDeque}, fmt::Display, rc::Rc};
+use std::{collections::HashMap, ops::Deref, rc::Rc};
 
-use strum_macros::IntoStaticStr;
 use thiserror::Error;
 
-use crate::builtins::Builtin;
-
-#[derive(Clone, Debug, IntoStaticStr)]
-pub enum Value<'a> {
-    List(Rc<RefCell<VecDeque<Value<'a>>>>),
-    Builtin(&'a Builtin),
-    Integer(i64),
-    Name(&'a str),
-}
-
-impl<'a> Value<'a> {
-    fn nil() -> Value<'a> {
-        Value::List(Rc::new(RefCell::new(VecDeque::new())))
-    }
-}
-
-impl Display for Value<'_> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Value::List(values) => {
-                let values = values.borrow();
-                write!(f, "[")?;
-                for (index, value) in values.iter().enumerate() {
-                    value.fmt(f)?;
-                    if index != values.len() {
-                        write!(f, " ")?;
-                    }
-                }
-                write!(f, "]")?;
-                Ok(())
-            },
-            Value::Builtin(builtin) => {
-                write!(f, "<builtin {} \"{}\">", if builtin.is_macro { "macro" } else { "function" }, builtin.name)
-            },
-            Value::Integer(value) => write!(f, "{}", value),
-            Value::Name(name) => write!(f, "{}", name),
-        }
-    }
-}
+use crate::{builtins::BUILTINS, value::Value};
 
 #[derive(Debug, Error)]
-pub enum Error<'a> {
+pub enum Error {
     #[error("attempt to look up an undefined name {0}")]
-    UndefinedName(&'a str),
+    UndefinedName(String),
     #[error("attempt to call an uncallable value {0}")]
-    UncallableValue(Value<'a>),
+    UncallableValue(Value),
     #[error("missing argument {name} of type {expected_type}")]
     MissingArgument {
         name: &'static str,
         expected_type: &'static str,
     },
     #[error("extra arguments supplied")]
-    ExtraArguments(Vec<Value<'a>>),
+    ExtraArguments(Vec<Value>),
     #[error("wrong argument type passed to argument {name}: expected a {expected_type} but got a value {value}")]
     WrongBuiltinArgumentType {
         name: &'static str,
         expected_type: &'static str,
-        value: Value<'a>,
+        value: Value,
     },
     #[error("builtin execution failed")]
     BuiltinExecutionFailed(#[from] Box<dyn std::error::Error>),
 }
 
-type ValueResult<'a> = Result<Value<'a>, Error<'a>>;
-type Scope<'a> = HashMap<&'a str, Value<'a>>;
+pub type ValueResult = Result<Rc<Value>, Error>;
+type Scope = HashMap<String, Rc<Value>>;
 
-pub struct Machine<'a> {
-    pub globals: Scope<'a>,
-    pub locals: Vec<Scope<'a>>,
+pub struct Machine {
+    globals: Scope,
+    locals: Vec<Scope>,
 }
 
-impl<'a> Machine<'a> {
-    fn eval(&mut self, value: Value<'a>) -> ValueResult<'a> {
-        match value {
+impl Machine {
+    pub fn new() -> Self {
+        Machine {
+            globals: HashMap::from_iter(
+                BUILTINS.iter().map(|(k, v)| ((*k).into(), Rc::new(Value::Builtin(*v))))
+            ),
+            locals: vec![],
+        }
+    }
+
+    pub fn eval(&mut self, value: Rc<Value>) -> ValueResult {
+        match Rc::deref(&value) {
             Value::List(contents) => {
-                let mut contents = contents.borrow_mut();
-                if contents.is_empty() {
+                match contents.divide() {
                     // nil evaluates to itself
-                    Ok(Value::nil())
-                } else {
+                    None => Ok(value),
                     // otherwise it's a function call
-                    let args = contents.split_off(1);
-                    let target = contents.pop_front().unwrap();
-                    match target {
-                        Value::List(values) => todo!(),
-                        Value::Builtin(builtin) => {
-                            (builtin.body)(args, self)
-                        },
-                        _ => Err(Error::UncallableValue(target))
+                    Some((target, args)) => {
+                        match Rc::deref(&target) {
+                            Value::List(list) => todo!(),
+                            Value::Builtin(builtin) => {
+                                let mut args: Vec<Rc<Value>> = args.into_iter().cloned().collect();
+                                if builtin.is_macro {
+                                    args = args.into_iter().map(|v| self.eval(v)).collect::<Result<_, _>>()?;
+                                }
+                                (builtin.body)(args, self)
+                            },
+                            other => Err(Error::UncallableValue(other.clone())),
+                        }
                     }
                 }
             },
@@ -101,13 +73,9 @@ impl<'a> Machine<'a> {
                 self.locals.last()
                     .and_then(|scope| scope.get(name))
                     .or_else(|| self.globals.get(name))
-                    .ok_or_else(|| Error::UndefinedName(name))
-                    .map(|value| value.clone())
+                    .ok_or_else(|| Error::UndefinedName(name.to_string()))
+                    .cloned()
             },
         }
-    }
-
-    fn call(value: Value<'a>) {
-
     }
 }
