@@ -1,6 +1,5 @@
 use std::{collections::VecDeque, convert::Infallible};
 
-
 #[derive(Clone, Debug, PartialEq, Eq)]
 enum Node<T> {
     Cons(T, Box<Node<T>>),
@@ -13,7 +12,10 @@ pub struct List<T> {
     length: usize,
 }
 
-pub const NIL: List<Infallible> = List { node: Node::Nil, length: 0 };
+pub const NIL: List<Infallible> = List {
+    node: Node::Nil,
+    length: 0,
+};
 
 impl<T> List<T> {
     pub fn head(&self) -> Option<&T> {
@@ -25,8 +27,13 @@ impl<T> List<T> {
 
     pub fn divide(&self) -> Option<(&T, List<&T>)> {
         match &self.node {
-            Node::Cons(value, list) =>
-                Some((&value, List { node: list.contents(), length: self.length - 1 })),
+            Node::Cons(value, list) => Some((
+                &value,
+                List {
+                    node: list.contents(),
+                    length: self.length - 1,
+                },
+            )),
             Node::Nil => None,
         }
     }

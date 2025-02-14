@@ -1,7 +1,9 @@
 use std::{collections::HashMap, rc::Rc, sync::LazyLock};
 
-use crate::{machine::{Error, Machine, ValueResult}, value::Value};
-
+use crate::{
+    machine::{Error, Machine, ValueResult},
+    value::Value,
+};
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub struct Builtin {
@@ -70,15 +72,17 @@ macro_rules! builtin_argument {
     };
 }
 
-pub static BUILTINS: LazyLock<HashMap<&'static str, Builtin>> = LazyLock::new(|| HashMap::from([
-    builtin! {
-        fn eval(machine, value: any) as v {
-            machine.eval(value)
-        }
-    },
-    builtin! {
-        macro quote(_machine, thing: any) as q {
-            Ok(thing)
-        }
-    },
-]));
+pub static BUILTINS: LazyLock<HashMap<&'static str, Builtin>> = LazyLock::new(|| {
+    HashMap::from([
+        builtin! {
+            fn eval(machine, value: any) as v {
+                machine.eval(value)
+            }
+        },
+        builtin! {
+            macro quote(_machine, thing: any) as q {
+                Ok(thing)
+            }
+        },
+    ])
+});

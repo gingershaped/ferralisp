@@ -39,7 +39,9 @@ impl Machine {
     pub fn new() -> Self {
         Machine {
             globals: HashMap::from_iter(
-                BUILTINS.iter().map(|(k, v)| ((*k).into(), Rc::new(Value::Builtin(*v))))
+                BUILTINS
+                    .iter()
+                    .map(|(k, v)| ((*k).into(), Rc::new(Value::Builtin(*v)))),
             ),
             locals: vec![],
         }
@@ -52,30 +54,31 @@ impl Machine {
                     // nil evaluates to itself
                     None => Ok(value),
                     // otherwise it's a function call
-                    Some((target, args)) => {
-                        match Rc::deref(&target) {
-                            Value::List(list) => todo!(),
-                            Value::Builtin(builtin) => {
-                                let mut args: Vec<Rc<Value>> = args.into_iter().cloned().collect();
-                                if builtin.is_macro {
-                                    args = args.into_iter().map(|v| self.eval(v)).collect::<Result<_, _>>()?;
-                                }
-                                (builtin.body)(args, self)
-                            },
-                            other => Err(Error::UncallableValue(other.clone())),
+                    Some((target, args)) => match Rc::deref(&target) {
+                        Value::List(list) => todo!(),
+                        Value::Builtin(builtin) => {
+                            let mut args: Vec<Rc<Value>> = args.into_iter().cloned().collect();
+                            if builtin.is_macro {
+                                args = args
+                                    .into_iter()
+                                    .map(|value| self.eval(value))
+                                    .collect::<Result<_, _>>()?;
+                            }
+                            (builtin.body)(args, self)
                         }
-                    }
+                        other => Err(Error::UncallableValue(other.clone())),
+                    },
                 }
-            },
+            }
             Value::Builtin(_) => Ok(value),
             Value::Integer(_) => Ok(value),
-            Value::Name(name) => {
-                self.locals.last()
-                    .and_then(|scope| scope.get(name))
-                    .or_else(|| self.globals.get(name))
-                    .ok_or_else(|| Error::UndefinedName(name.to_string()))
-                    .cloned()
-            },
+            Value::Name(name) => self
+                .locals
+                .last()
+                .and_then(|scope| scope.get(name))
+                .or_else(|| self.globals.get(name))
+                .ok_or_else(|| Error::UndefinedName(name.to_string()))
+                .cloned(),
         }
     }
 }
