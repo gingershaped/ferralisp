@@ -1,4 +1,4 @@
-use std::{collections::VecDeque, convert::Infallible};
+use std::{collections::VecDeque, convert::Infallible, ops::Index};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 enum Node<T> {
@@ -62,6 +62,31 @@ impl<T> Node<T> {
         match self {
             Node::Cons(value, node) => Node::Cons(value, Box::new(node.contents())),
             Node::Nil => Node::Nil,
+        }
+    }
+}
+
+impl<T> Index<usize> for List<T> {
+    type Output = T;
+
+    fn index(&self, index: usize) -> &Self::Output {
+        self.node.index(index)
+    }
+}
+
+impl<T> Index<usize> for Node<T> {
+    type Output = T;
+
+    fn index(&self, index: usize) -> &Self::Output {
+        match self {
+            Node::Cons(item, node) => {
+                if index == 0 {
+                    item
+                } else {
+                    node.index(index - 1)
+                }
+            },
+            Node::Nil => panic!("List index {} out of bounds", index),
         }
     }
 }
