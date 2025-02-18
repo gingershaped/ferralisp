@@ -1,3 +1,5 @@
+//! an implementation of a singly-linked list
+
 use std::{collections::VecDeque, fmt::Display, ops::Index};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -13,6 +15,7 @@ pub struct List<T> {
 }
 
 impl<T> List<T> {
+    /// return the first element of the list, or None if the list is nil
     pub fn head(&self) -> Option<&T> {
         match &self.node {
             Node::Cons(value, _) => Some(value),
@@ -20,6 +23,7 @@ impl<T> List<T> {
         }
     }
 
+    /// return a pair of the head of the list and the rest of the elements, or None if the list is nil
     pub fn divide(&self) -> Option<(&T, List<&T>)> {
         match &self.node {
             Node::Cons(value, list) => Some((
@@ -33,10 +37,12 @@ impl<T> List<T> {
         }
     }
 
+    /// return the last element of the list
     pub fn last(&self) -> Option<&T> {
         self.node.last()
     }
 
+    /// return the number of elements in the list
     pub fn len(&self) -> usize {
         self.length
     }

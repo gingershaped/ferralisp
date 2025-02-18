@@ -1,3 +1,6 @@
+//! all the tinylisp builtins. these will be injected into the global namespace
+//! of newly created machines.
+
 use std::{collections::HashMap, rc::Rc, sync::LazyLock};
 
 use crate::{

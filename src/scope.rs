@@ -1,3 +1,5 @@
+//! HashMap wrappers for storing a machine's global and local scopes.
+
 use std::{cell::RefCell, collections::HashMap, rc::Rc};
 
 use crate::{builtins::BUILTINS, machine::{Error, ValueResult}, value::Value};

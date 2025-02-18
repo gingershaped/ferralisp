@@ -1,3 +1,5 @@
+//! the tinylisp parser, implemented using the PEG formalism.
+
 use peg::{error::ParseError, parser, str::LineCol};
 
 #[derive(Clone, Debug, PartialEq, Eq)]

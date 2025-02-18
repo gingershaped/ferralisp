@@ -1,3 +1,5 @@
+//! the machine, or the thing that actually executes tinylisp code.
+
 use std::rc::Rc;
 
 use itertools::{EitherOrBoth, Itertools};
@@ -71,6 +73,8 @@ impl Machine {
             .collect::<Result<_, _>>()
     }
 
+    /// inspect the structure of a user-defined function to determine how to call it,
+    /// and evaluate the arguments if it's a macro
     fn call_information(
         &mut self,
         target: &List<Rc<Value>>,
@@ -121,7 +125,14 @@ impl Machine {
         })
     }
 
+    /// call a user-defined "function" (i.e. a list with the correct structure).
+    /// 
+    /// functions which recursively call themselves as their last operation (tail-recursive functions)
+    /// will be optimized into a loop, allowing them to recurse infinitely without overflowing the Rust
+    /// call stack. certain builtins (those marked as `tce` in `builtins.rs`) may also be used
+    /// without disabling this optimization.
     fn call(&mut self, function: &List<Rc<Value>>, raw_args: List<&Rc<Value>>) -> ValueResult {
+        // all of this is mutable so TCE can update it
         let mut scope = self.scope.local();
         let mut call_info = self.call_information(function, raw_args)?;
         let mut head: Option<Rc<Value>>;
@@ -129,6 +140,7 @@ impl Machine {
         let mut function = function;
 
         loop {
+            // bind argument values to their names in the local scope
             match call_info.argument_names {
                 ArgumentNames::NAdic(ref names) => {
                     for (index, pair) in names.iter().zip_longest(&call_info.arguments).enumerate()
@@ -137,6 +149,7 @@ impl Machine {
                             EitherOrBoth::Both(name, value) => {
                                 scope.insert(name.to_string(), (*value).clone());
                             }
+                            // an argument is missing
                             EitherOrBoth::Left(name) => {
                                 return Err(Error::MissingArgument {
                                     call_target: Value::List(function.clone()),
@@ -144,6 +157,7 @@ impl Machine {
                                     expected_type: None,
                                 });
                             }
+                            // an extra argument was supplied, split off the rest of the argument list
                             EitherOrBoth::Right(_) => {
                                 return Err(Error::ExtraArguments {
                                     call_target: Value::List(function.clone()),
@@ -159,6 +173,7 @@ impl Machine {
                     }
                 }
                 ArgumentNames::Variadic(ref name) => {
+                    // summon a list from the ether to hold the arguments
                     scope.insert(
                         name.to_string(),
                         Rc::new(Value::List(
@@ -173,8 +188,10 @@ impl Machine {
             }
 
             // tail-call elimination
-            // first flatten builtins which are evaluated during TCE
+            // most of this code is copied from the original tinylisp,
+            // and I will not claim to understand how it actually works
             head = None;
+            // first flatten builtins which are evaluated during TCE
             while let Value::List(body_contents) = body.as_ref() {
                 if let Some((body_head, body_tail)) = body_contents.divide() {
                     head = Some(self.eval(body_head.clone())?);
@@ -188,7 +205,11 @@ impl Machine {
                 break;
             }
 
+            // are we left with a tail call to a user-defined function?
             if let Some(Value::List(head_contents)) = head.as_deref() {
+                // if so, replace the original call's arguments with the updated ones,
+                // the original function with the new (possibly identical) function,
+                // and go back to the start of the loop
                 function = head_contents;
                 if let Value::List(body) = body.as_ref() {
                     if let Some((_, raw_args)) = body.divide() {
@@ -197,13 +218,16 @@ impl Machine {
                         continue;
                     }
                 }
+                // tried to recurse into an uncallable value
                 return Err(Error::UncallableValue(body.as_ref().clone()));
             } else {
+                // we're done recursing, evaluate the final expression and return it
                 return self.eval(body);
             }
         }
     }
 
+    /// evaluate a value as described in the tinylisp spec
     pub fn eval(&mut self, value: Rc<Value>) -> ValueResult {
         match value.as_ref() {
             Value::List(contents) => {
@@ -224,6 +248,7 @@ impl Machine {
                     },
                 }
             }
+            // no need to increment the refcount here
             Value::Builtin(_) => Ok(value),
             Value::Integer(_) => Ok(value),
             Value::Name(name) => self.scope.lookup(name),

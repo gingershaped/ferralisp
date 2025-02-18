@@ -1,3 +1,12 @@
+//! values are the units of data which exist inside the machine. there are four kinds of them:
+//! - List: a singly-linked list of values
+//! - Builtin: a built-in function or macro
+//! - Integer: a signed 64-bit integer
+//! - Name: a name
+//! values are usually wrapped in an Rc, but may be cloned for situations like displaying error messages.
+//! all values are truthy for the purposes of builtins like `i`,
+//! except for the number zero and the empty list (nil).
+
 use std::{fmt::Display, rc::Rc};
 
 use strum_macros::IntoStaticStr;
