@@ -211,7 +211,7 @@ impl Machine {
                     // nil evaluates to itself
                     None => Ok(value),
                     // otherwise it's a function call
-                    Some((target, args)) => match target.as_ref() {
+                    Some((target, args)) => match self.eval(target.clone())?.as_ref() {
                         Value::List(function) => self.call(function, args),
                         Value::Builtin(builtin) => {
                             let mut args = args.into_iter().cloned().collect();
