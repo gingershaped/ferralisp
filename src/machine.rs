@@ -11,6 +11,8 @@ use crate::{list::List, scope::GlobalScope, value::Value};
 pub enum Error {
     #[error("attempt to look up an undefined name {0}")]
     UndefinedName(String),
+    #[error("name {0} may not be redefined, it is already defined as value {1}")]
+    DefinedName(String, Value),
     #[error("cannot call value {0} because it is not a list or a builtin")]
     UncallableValue(Value),
     #[error("list {value} is not a correctly structured function or macro because: {reason}")]

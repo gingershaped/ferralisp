@@ -14,7 +14,7 @@ pub struct LocalScope {
 impl LocalScope {
     fn scope<R, F: FnOnce(&mut Scope) -> R>(&self, f: F) -> R{
         let mut scopes = self.locals.borrow_mut();
-        f(scopes.last_mut().unwrap())
+        f(scopes.last_mut().expect("local scope stack underflow"))
     }
 
     pub fn insert(&self, key: String, value: Rc<Value>) {
@@ -54,6 +54,7 @@ impl GlobalScope {
     }
 
     pub fn local(&self) -> LocalScope {
+        self.locals.borrow_mut().push(HashMap::new());
         LocalScope { locals: self.locals.clone() }
     }
 
@@ -66,5 +67,9 @@ impl GlobalScope {
             .or_else(|| self.globals.get(name))
             .ok_or_else(|| Error::UndefinedName(name.to_string()))
             .cloned()
+    }
+
+    pub fn global_lookup(&self, name: &String) -> Option<&Rc<Value>> {
+        self.globals.get(name)
     }
 }

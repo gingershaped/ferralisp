@@ -20,27 +20,27 @@ macro_rules! builtin {
     (
         fn $name:ident($machine:ident, $($arg:tt)*) as $alias:ident $body:block
     ) => {
-        builtin_inner!($alias, $name, false, false, $machine, $($arg)*, $body)
+        builtin_inner!($alias, $name, false, false, $machine, ($($arg)*), $body)
     };
     (
         macro $name:ident($machine:ident, $($arg:tt)*) as $alias:ident $body:block
     ) => {
-        builtin_inner!($alias, $name, true, false, $machine, $($arg)*, $body)
+        builtin_inner!($alias, $name, true, false, $machine, ($($arg)*), $body)
     };
     (
         tce fn $name:ident($machine:ident, $($arg:tt)*) as $alias:ident $body:block
     ) => {
-        builtin_inner!($alias, $name, false, true, $machine, $($arg)*, $body)
+        builtin_inner!($alias, $name, false, true, $machine, ($($arg)*), $body)
     };
     (
         tce macro $name:ident($machine:ident, $($arg:tt)*) as $alias:ident $body:block
     ) => {
-        builtin_inner!($alias, $name, true, true, $machine, $($arg)*, $body)
+        builtin_inner!($alias, $name, true, true, $machine, ($($arg)*), $body)
     };
 }
 
 macro_rules! builtin_inner {
-    ($alias:ident, $name:ident, $is_macro:literal, $eval_during_tce:literal, $machine:ident, $($argname:ident: $argtype:tt),*, $body:block) => {
+    ($alias:ident, $name:ident, $is_macro:literal, $eval_during_tce:literal, $machine:ident, ($($argname:tt: $argtype:tt),*), $body:block) => {
         (stringify!($alias), Builtin {
             name: stringify!($name),
             is_macro: $is_macro,
@@ -84,9 +84,29 @@ macro_rules! builtin_argument {
                 }),
             },
             None => Err(Error::MissingArgument {
-                name: stringify!($name),
+                name: stringify!($name).to_owned(),
                 call_target: Value::Builtin(BUILTINS[stringify!($alias)]),
-                expected_type: Some(stringify!($argtype)),
+                expected_type: Some(stringify!($argtype).to_owned()),
+            }),
+        }?;
+    };
+    ($alias:ident, $args:ident, $machine:ident, ($raw:ident -> $name:ident): $argtype:path) => {
+        use Value::*;
+        let arg = $args.pop();
+        #[allow(unused_mut)]
+        let ($raw, mut $name) = match arg {
+            Some(ref arg) => match arg.as_ref() {
+                $argtype(value) => Ok((arg.clone(), value)),
+                other => Err(Error::WrongBuiltinArgumentType {
+                    name: stringify!($name),
+                    expected_type: stringify!($argtype),
+                    value: other.clone(),
+                }),
+            },
+            None => Err(Error::MissingArgument {
+                name: stringify!($name).to_owned(),
+                call_target: Value::Builtin(BUILTINS[stringify!($alias)]),
+                expected_type: Some(stringify!($argtype).to_owned()),
             }),
         }?;
     };
@@ -95,7 +115,7 @@ macro_rules! builtin_argument {
 pub static BUILTINS: LazyLock<HashMap<&'static str, Builtin>> = LazyLock::new(|| {
     HashMap::from([
         builtin! {
-            fn eval(machine, value: any) as v {
+            tce fn eval(machine, value: any) as v {
                 machine.eval(value)
             }
         },
@@ -110,6 +130,17 @@ pub static BUILTINS: LazyLock<HashMap<&'static str, Builtin>> = LazyLock::new(||
                     Ok(if_truthy)
                 } else {
                     Ok(if_falsy)
+                }
+            }
+        },
+        builtin! {
+            macro def(machine, (name_raw -> name): Name, value: any) as d {
+                if machine.scope.global_lookup(name).is_none() {
+                    let value = machine.eval(value)?;
+                    machine.scope.insert(name.to_string(), value);
+                    Ok(name_raw)
+                } else {
+                    Err(Error::DefinedName(name.to_string(), name_raw.as_ref().clone()))
                 }
             }
         },
