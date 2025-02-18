@@ -115,7 +115,7 @@ impl Machine {
             }
         };
         let mut arguments: Vec<_> = arguments.into_iter().cloned().collect();
-        if is_macro {
+        if !is_macro {
             arguments = self.evaluate_args(arguments)?;
         }
         Ok(CallInformation {
@@ -239,7 +239,7 @@ impl Machine {
                         Value::List(function) => self.call(function, args),
                         Value::Builtin(builtin) => {
                             let mut args = args.into_iter().cloned().collect();
-                            if builtin.is_macro {
+                            if !builtin.is_macro {
                                 args = self.evaluate_args(args)?;
                             }
                             (builtin.body)(args, self)
