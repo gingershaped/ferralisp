@@ -1,4 +1,4 @@
-use std::{collections::VecDeque, convert::Infallible, ops::Index};
+use std::{collections::VecDeque, fmt::Display, ops::Index};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 enum Node<T> {
@@ -11,11 +11,6 @@ pub struct List<T> {
     node: Node<T>,
     length: usize,
 }
-
-pub const NIL: List<Infallible> = List {
-    node: Node::Nil,
-    length: 0,
-};
 
 impl<T> List<T> {
     pub fn head(&self) -> Option<&T> {
@@ -85,7 +80,7 @@ impl<T> Index<usize> for Node<T> {
                 } else {
                     node.index(index - 1)
                 }
-            },
+            }
             Node::Nil => panic!("List index {} out of bounds", index),
         }
     }
@@ -165,19 +160,19 @@ impl<T> From<Vec<T>> for List<T> {
     }
 }
 
-// impl<T: Display> Display for Node<T> {
-//     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-//         write!(f, "[")?;
-//         for (index, value) in self.iter().enumerate() {
-//             value.fmt(f)?;
-//             if index != self.len() {
-//                 write!(f, " ")?;
-//             }
-//         }
-//         write!(f, "]")?;
-//         Ok(())
-//     }
-// }
+impl<T: Display> Display for List<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "(")?;
+        for (index, value) in self.into_iter().enumerate() {
+            value.fmt(f)?;
+            if index != self.len() {
+                write!(f, " ")?;
+            }
+        }
+        write!(f, ")")?;
+        Ok(())
+    }
+}
 
 #[cfg(test)]
 mod test {

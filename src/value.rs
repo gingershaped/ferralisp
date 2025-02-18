@@ -6,17 +6,27 @@ use crate::{builtins::Builtin, list::List};
 
 #[derive(Clone, Debug, IntoStaticStr, PartialEq, Eq)]
 pub enum Value {
-    List(Box<List<Rc<Value>>>),
+    List(List<Rc<Value>>),
     Builtin(Builtin),
     Integer(i64),
     Name(String),
+}
+
+impl Value {
+    pub fn truthy(&self) -> bool {
+        match self {
+            Value::Integer(0) => false,
+            Value::List(list) => list.len() > 0,
+            _ => true,
+        }
+    }
 }
 
 impl Display for Value {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Value::List(values) => {
-                let values: Vec<&Rc<Value>> = values.as_ref().into_iter().collect();
+                let values: Vec<&Rc<Value>> = values.into_iter().collect();
                 write!(f, "[")?;
                 for (index, value) in values.iter().enumerate() {
                     value.fmt(f)?;
