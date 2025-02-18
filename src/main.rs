@@ -42,7 +42,10 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     let mut machine = Machine::new();
     for expression in parsed {
-        println!("{:?}", machine.eval(Rc::new(expression.into()))?);
+        match machine.eval(Rc::new(expression.into())) {
+            Ok(value) => println!("{}", value),
+            Err(err) => println!("error!! {}", err),
+        }
     }
 
     Ok(())
