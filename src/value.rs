@@ -2,7 +2,7 @@ use std::{fmt::Display, rc::Rc};
 
 use strum_macros::IntoStaticStr;
 
-use crate::{builtins::Builtin, list::List};
+use crate::{builtins::Builtin, list::List, parser::Expression};
 
 #[derive(Clone, Debug, IntoStaticStr, PartialEq, Eq)]
 pub enum Value {
@@ -51,6 +51,22 @@ impl Display for Value {
             }
             Value::Integer(value) => write!(f, "{}", value),
             Value::Name(name) => write!(f, "{}", name),
+        }
+    }
+}
+
+impl From<Expression<'_>> for Value {
+    fn from(expr: Expression) -> Self {
+        match expr {
+            Expression::Integer(value) => Value::Integer(value),
+            Expression::Name(name) => Value::Name(name.to_owned()),
+            Expression::List(expressions) => Value::List(
+                expressions
+                    .into_iter()
+                    .map(|expr| Rc::new(expr.into()))
+                    .collect::<Vec<_>>()
+                    .into(),
+            ),
         }
     }
 }
