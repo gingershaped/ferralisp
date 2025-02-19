@@ -72,10 +72,12 @@ macro_rules! builtin_argument {
         })?;
     };
     ($alias:ident, $args:ident, $machine:ident, $name:ident: $argtype:path) => {
+        #[allow(unused_imports)]
         use Value::*;
+        let arg = $args.pop();
         #[allow(unused_mut)]
-        let mut $name = match $args.pop() {
-            Some(arg) => match arg.as_ref() {
+        let mut $name = match arg {
+            Some(ref arg) => match arg.as_ref() {
                 $argtype(arg) => Ok(arg),
                 other => Err(Error::WrongBuiltinArgumentType {
                     name: stringify!($name),
@@ -91,6 +93,7 @@ macro_rules! builtin_argument {
         }?;
     };
     ($alias:ident, $args:ident, $machine:ident, ($raw:ident -> $name:ident): $argtype:path) => {
+        #[allow(unused_imports)]
         use Value::*;
         let arg = $args.pop();
         #[allow(unused_mut)]
@@ -115,8 +118,73 @@ macro_rules! builtin_argument {
 pub static BUILTINS: LazyLock<HashMap<&'static str, Builtin>> = LazyLock::new(|| {
     HashMap::from([
         builtin! {
+            fn cons(_machine, value: any, list: List) as c {
+                Ok(Rc::new(Value::List(list.clone().cons(value))))
+            }
+        },
+        builtin! {
+            fn head(_machine, value: List) as h {
+                Ok(value.head().cloned().unwrap_or(Value::nil()))
+            }
+        },
+        builtin! {
+            fn tail(_machine, value: List) as t {
+                Ok(value.tail().map(|value| Rc::new(Value::List(value.into()))).unwrap_or(Value::nil()))
+            }
+        },
+        builtin! {
+            fn add(_machine, a: Integer, b: Integer) as a {
+                Ok(Rc::new(Value::Integer(a + b)))
+            }
+        },
+        builtin! {
+            fn subtract(_machine, a: Integer, b: Integer) as s {
+                Ok(Rc::new(Value::Integer(a - b)))
+            }
+        },
+        builtin! {
+            fn less_than(_machine, a: Integer, b: Integer) as l {
+                Ok(Rc::new(Value::Integer((a < b).into())))
+            }
+        },
+        builtin! {
+            fn equal(_machine, a: any, b: any) as e {
+                Ok(Rc::new(Value::Integer((a == b).into())))
+            }
+        },
+        builtin! {
             tce fn eval(machine, value: any) as v {
                 machine.eval(value)
+            }
+        },
+        builtin! {
+            fn string(_machine, codes: List) as string {
+                Ok(Rc::new(Value::Name(String::from_iter(codes
+                    .into_iter()
+                    .map(|value| {
+                        if let Value::Integer(value) = value.as_ref() {
+                            char::from_u32(*value as u32).ok_or_else(|| Error::BuiltinError(format!("invalid character value {}", value)))
+                        } else {
+                            Err(Error::BuiltinError(format!("non-integer value {} supplied", value)))
+                        }
+                    })
+                    .collect::<Result<Vec<_>, _>>()?
+                ))))
+            }
+        },
+        builtin! {
+            fn chars(_machine, name: Name) as chars {
+                Ok(Rc::new(Value::List(name.chars().map(|char| Rc::new(Value::Integer(char as i64))).collect())))
+            }
+        },
+        builtin! {
+            fn type(_machine, value: any) as type {
+                Ok(Rc::new(Value::Name(match value.as_ref() {
+                    Value::List(_) => "List",
+                    Value::Builtin(_) => "Builtin",
+                    Value::Integer(_) => "Integer",
+                    Value::Name(_) => "Name",
+                }.to_string())))
             }
         },
         builtin! {
@@ -127,9 +195,9 @@ pub static BUILTINS: LazyLock<HashMap<&'static str, Builtin>> = LazyLock::new(||
         builtin! {
             tce macro if(machine, condition: any, if_truthy: any, if_falsy: any) as i {
                 if machine.eval(condition)?.truthy() {
-                    Ok(if_truthy)
+                    machine.eval(if_truthy)
                 } else {
-                    Ok(if_falsy)
+                    machine.eval(if_falsy)
                 }
             }
         },

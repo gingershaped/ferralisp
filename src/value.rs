@@ -29,6 +29,10 @@ impl Value {
             _ => true,
         }
     }
+
+    pub fn nil() -> Rc<Value> {
+        Rc::new(Value::List(List::nil()))
+    }
 }
 
 impl Display for Value {
@@ -39,7 +43,7 @@ impl Display for Value {
                 write!(f, "[")?;
                 for (index, value) in values.iter().enumerate() {
                     value.fmt(f)?;
-                    if index != values.len() {
+                    if index != values.len() - 1 {
                         write!(f, " ")?;
                     }
                 }

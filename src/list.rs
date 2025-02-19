@@ -1,6 +1,6 @@
 //! an implementation of a singly-linked list
 
-use std::{collections::VecDeque, fmt::Display, ops::Index};
+use std::{collections::VecDeque, fmt::Display, ops::Index, rc::Rc};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 enum Node<T> {
@@ -23,6 +23,17 @@ impl<T> List<T> {
         }
     }
 
+    /// return the list without its first element, or None if the list is nil
+    pub fn tail(&self) -> Option<List<&T>> {
+        match &self.node {
+            Node::Cons(_, node) => Some(List {
+                node: node.contents(),
+                length: self.length - 1,
+            }),
+            Node::Nil => None,
+        }
+    }
+
     /// return a pair of the head of the list and the rest of the elements, or None if the list is nil
     pub fn divide(&self) -> Option<(&T, List<&T>)> {
         match &self.node {
@@ -37,6 +48,13 @@ impl<T> List<T> {
         }
     }
 
+    pub fn cons(self, element: T) -> List<T> {
+        List {
+            node: Node::Cons(element, Box::new(self.node)),
+            length: self.length + 1,
+        }
+    }
+
     /// return the last element of the list
     pub fn last(&self) -> Option<&T> {
         self.node.last()
@@ -45,6 +63,13 @@ impl<T> List<T> {
     /// return the number of elements in the list
     pub fn len(&self) -> usize {
         self.length
+    }
+
+    pub const fn nil() -> List<T> {
+        List {
+            node: Node::Nil,
+            length: 0,
+        }
     }
 }
 
@@ -163,6 +188,29 @@ impl<T> From<VecDeque<T>> for List<T> {
 impl<T> From<Vec<T>> for List<T> {
     fn from(vec: Vec<T>) -> Self {
         List::from(VecDeque::from(vec))
+    }
+}
+
+impl<T> FromIterator<T> for List<T> {
+    fn from_iter<I: IntoIterator<Item = T>>(iter: I) -> Self {
+        // TODO: consider using unsafe fuckery to do this without allocating that vec
+        let mut items = iter.into_iter().collect::<Vec<_>>();
+        items.reverse();
+        let mut node = Node::Nil;
+        let mut length = 0;
+
+        for i in items {
+            node = Node::Cons(i, Box::new(node));
+            length += 1;
+        }
+
+        List { node, length }
+    }
+}
+
+impl<'a, T> From<List<&Rc<T>>> for List<Rc<T>> {
+    fn from(value: List<&Rc<T>>) -> Self {
+        value.into_iter().cloned().collect()
     }
 }
 

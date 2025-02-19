@@ -40,8 +40,8 @@ pub enum Error {
         expected_type: &'static str,
         value: Value,
     },
-    #[error("builtin execution failed")]
-    BuiltinExecutionFailed(#[from] Box<dyn std::error::Error>),
+    #[error("builtin error: {0}")]
+    BuiltinError(String),
 }
 
 pub type ValueResult = Result<Rc<Value>, Error>;
