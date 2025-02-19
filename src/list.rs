@@ -230,49 +230,29 @@ impl<T: Display> Display for List<T> {
 
 #[cfg(test)]
 mod test {
-    use std::rc::Rc;
-
-    use crate::value::Value;
-
     use super::*;
 
+    fn test_list() -> List<usize> {
+        List::from(vec![1, 2, 3])
+    }
+
     #[test]
-    fn list_into() {
+    fn node_into() {
         assert_eq!(
-            Node::from(VecDeque::from(vec![
-                Rc::new(Value::Integer(1)),
-                Rc::new(Value::Integer(2)),
-                Rc::new(Value::Integer(3)),
-            ])),
+            Node::from(VecDeque::from(vec![1, 2, 3])),
             Node::Cons(
-                Rc::new(Value::Integer(1)),
-                Box::new(Node::Cons(
-                    Rc::new(Value::Integer(2)),
-                    Box::new(Node::Cons(Rc::new(Value::Integer(3)), Box::new(Node::Nil)))
-                )),
+                1,
+                Box::new(Node::Cons(2, Box::new(Node::Cons(3, Box::new(Node::Nil))))),
             )
         );
     }
 
     #[test]
     fn list_ops() {
-        assert_eq!(
-            List::from(vec![
-                Rc::new(Value::Integer(1)),
-                Rc::new(Value::Integer(2)),
-                Rc::new(Value::Integer(3))
-            ])
-            .head(),
-            Some(&Rc::new(Value::Integer(1)))
-        );
-        assert_eq!(
-            List::from(vec![
-                Rc::new(Value::Integer(1)),
-                Rc::new(Value::Integer(2)),
-                Rc::new(Value::Integer(3))
-            ])
-            .last(),
-            Some(&Rc::new(Value::Integer(3)))
-        );
+        assert_eq!(test_list().head(), Some(&1));
+        assert_eq!(test_list().tail(), Some(List::from(vec![&2, &3])));
+        assert_eq!(test_list().last(), Some(&3));
+        assert_eq!(test_list().divide(), Some((&1, List::from(vec![&2, &3]))));
+        assert_eq!(test_list().cons(0), List::from(vec![0, 1, 2, 3]));
     }
 }
