@@ -49,6 +49,12 @@ impl GlobalScope {
         }
     }
 
+    pub fn with_globals(globals: Scope) -> GlobalScope {
+        let mut scope = GlobalScope::new();
+        scope.globals.extend(globals);
+        scope
+    }
+
     pub fn insert(&mut self, key: String, value: Rc<Value>) {
         self.globals.insert(key, value);
     }

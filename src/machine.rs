@@ -7,7 +7,7 @@ use thiserror::Error;
 
 use crate::{list::List, scope::GlobalScope, value::Value};
 
-#[derive(Error, Debug)]
+#[derive(Error, Debug, PartialEq)]
 pub enum Error {
     #[error("attempt to look up an undefined name {0}")]
     UndefinedName(String),

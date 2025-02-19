@@ -33,6 +33,10 @@ impl Value {
     pub fn nil() -> Rc<Value> {
         Rc::new(Value::List(List::nil()))
     }
+
+    pub fn of<T>(value: T) -> Rc<Value> where T: Into<Value> {
+        Rc::new(value.into())
+    }
 }
 
 impl Display for Value {
@@ -81,5 +85,23 @@ impl From<Expression<'_>> for Value {
                     .into(),
             ),
         }
+    }
+}
+
+impl From<i64> for Value {
+    fn from(value: i64) -> Self {
+        Value::Integer(value)
+    }
+}
+
+impl From<String> for Value {
+    fn from(value: String) -> Self {
+        Value::Name(value)
+    }
+}
+
+impl From<&str> for Value {
+    fn from(value: &str) -> Self {
+        Value::Name(value.to_string())
     }
 }
