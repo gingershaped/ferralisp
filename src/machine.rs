@@ -182,8 +182,7 @@ impl Machine {
                             (&call_info.arguments)
                                 .iter()
                                 .cloned()
-                                .collect::<Vec<_>>()
-                                .into(),
+                                .collect()
                         )),
                     );
                 }

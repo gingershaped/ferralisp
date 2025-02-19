@@ -1,6 +1,6 @@
 //! an implementation of a singly-linked list
 
-use std::{collections::VecDeque, fmt::Display, ops::Index, rc::Rc};
+use std::{fmt::Display, ops::Index, rc::Rc};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 enum Node<T> {
@@ -167,30 +167,6 @@ impl<T> Iterator for ListConsumingIterator<T> {
     }
 }
 
-impl<T> From<VecDeque<T>> for Node<T> {
-    fn from(mut deque: VecDeque<T>) -> Self {
-        match deque.pop_front() {
-            Some(value) => Node::Cons(value, Box::new(deque.into())),
-            None => Node::Nil,
-        }
-    }
-}
-
-impl<T> From<VecDeque<T>> for List<T> {
-    fn from(vec: VecDeque<T>) -> Self {
-        List {
-            length: vec.len(),
-            node: Node::from(vec),
-        }
-    }
-}
-
-impl<T> From<Vec<T>> for List<T> {
-    fn from(vec: Vec<T>) -> Self {
-        List::from(VecDeque::from(vec))
-    }
-}
-
 impl<T> FromIterator<T> for List<T> {
     fn from_iter<I: IntoIterator<Item = T>>(iter: I) -> Self {
         // TODO: consider using unsafe fuckery to do this without allocating that vec
@@ -233,13 +209,13 @@ mod test {
     use super::*;
 
     fn test_list() -> List<usize> {
-        List::from(vec![1, 2, 3])
+        List::from_iter(vec![1, 2, 3])
     }
 
     #[test]
-    fn node_into() {
+    fn list_from_iter() {
         assert_eq!(
-            Node::from(VecDeque::from(vec![1, 2, 3])),
+            test_list().node,
             Node::Cons(
                 1,
                 Box::new(Node::Cons(2, Box::new(Node::Cons(3, Box::new(Node::Nil))))),
@@ -250,9 +226,9 @@ mod test {
     #[test]
     fn list_ops() {
         assert_eq!(test_list().head(), Some(&1));
-        assert_eq!(test_list().tail(), Some(List::from(vec![&2, &3])));
+        assert_eq!(test_list().tail(), Some(List::from_iter(vec![&2, &3])));
         assert_eq!(test_list().last(), Some(&3));
-        assert_eq!(test_list().divide(), Some((&1, List::from(vec![&2, &3]))));
-        assert_eq!(test_list().cons(0), List::from(vec![0, 1, 2, 3]));
+        assert_eq!(test_list().divide(), Some((&1, List::from_iter(vec![&2, &3]))));
+        assert_eq!(test_list().cons(0), List::from_iter(vec![0, 1, 2, 3]));
     }
 }

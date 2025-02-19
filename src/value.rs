@@ -81,8 +81,7 @@ impl From<Expression<'_>> for Value {
                 expressions
                     .into_iter()
                     .map(|expr| Rc::new(expr.into()))
-                    .collect::<Vec<_>>()
-                    .into(),
+                    .collect()
             ),
         }
     }
