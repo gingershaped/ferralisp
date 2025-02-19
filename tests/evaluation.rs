@@ -1,4 +1,4 @@
-use std::{collections::HashMap, rc::Rc};
+use std::collections::HashMap;
 
 use ferralisp::{machine::Machine, scope::GlobalScope, value::Value};
 
@@ -11,16 +11,7 @@ fn primitive_eval() {
         )])),
     };
 
-    assert_eq!(
-        machine.eval(Value::of(12345)),
-        Ok(Value::of(12345)),
-    );
-    assert_eq!(
-        machine.eval(Value::nil()),
-        Ok(Value::nil()),
-    );
-    assert_eq!(
-        machine.eval(Value::of("foo")),
-        Ok(Value::of(11111)),
-    )
+    assert_eq!(machine.eval(Value::of(12345)), Ok(Value::of(12345)));
+    assert_eq!(machine.eval(Value::nil()), Ok(Value::nil()));
+    assert_eq!(machine.eval(Value::of("foo")), Ok(Value::of(11111)))
 }

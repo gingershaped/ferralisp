@@ -228,7 +228,10 @@ mod test {
         assert_eq!(test_list().head(), Some(&1));
         assert_eq!(test_list().tail(), Some(List::from_iter(vec![&2, &3])));
         assert_eq!(test_list().last(), Some(&3));
-        assert_eq!(test_list().divide(), Some((&1, List::from_iter(vec![&2, &3]))));
+        assert_eq!(
+            test_list().divide(),
+            Some((&1, List::from_iter(vec![&2, &3])))
+        );
         assert_eq!(test_list().cons(0), List::from_iter(vec![0, 1, 2, 3]));
     }
 }

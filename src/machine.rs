@@ -128,7 +128,7 @@ impl Machine {
     }
 
     /// call a user-defined "function" (i.e. a list with the correct structure).
-    /// 
+    ///
     /// functions which recursively call themselves as their last operation (tail-recursive functions)
     /// will be optimized into a loop, allowing them to recurse infinitely without overflowing the Rust
     /// call stack. certain builtins (those marked as `tce` in `builtins.rs`) may also be used
@@ -179,10 +179,7 @@ impl Machine {
                     scope.insert(
                         name.to_string(),
                         Rc::new(Value::List(
-                            (&call_info.arguments)
-                                .iter()
-                                .cloned()
-                                .collect()
+                            (&call_info.arguments).iter().cloned().collect(),
                         )),
                     );
                 }

@@ -33,7 +33,7 @@ impl Source {
 fn main() -> Result<(), Box<dyn Error>> {
     let args = Cli::parse();
     let source = args.source.read();
-    
+
     let parsed = parse(&source)?;
     if args.parsetree {
         println!("{:?}", parse(&source));

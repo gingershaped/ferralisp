@@ -2,17 +2,21 @@
 
 use std::{cell::RefCell, collections::HashMap, rc::Rc};
 
-use crate::{builtins::BUILTINS, machine::{Error, ValueResult}, value::Value};
+use crate::{
+    builtins::BUILTINS,
+    machine::{Error, ValueResult},
+    value::Value,
+};
 
 type Scope = HashMap<String, Rc<Value>>;
 type Locals = Rc<RefCell<Vec<Scope>>>;
 
 pub struct LocalScope {
-    locals: Locals
+    locals: Locals,
 }
 
 impl LocalScope {
-    fn scope<R, F: FnOnce(&mut Scope) -> R>(&self, f: F) -> R{
+    fn scope<R, F: FnOnce(&mut Scope) -> R>(&self, f: F) -> R {
         let mut scopes = self.locals.borrow_mut();
         f(scopes.last_mut().expect("local scope stack underflow"))
     }
@@ -20,7 +24,7 @@ impl LocalScope {
     pub fn insert(&self, key: String, value: Rc<Value>) {
         self.scope(|scope| scope.insert(key, value));
     }
-    
+
     pub fn clear(&mut self) {
         self.scope(|scope| scope.clear());
     }
@@ -61,12 +65,13 @@ impl GlobalScope {
 
     pub fn local(&self) -> LocalScope {
         self.locals.borrow_mut().push(HashMap::new());
-        LocalScope { locals: self.locals.clone() }
+        LocalScope {
+            locals: self.locals.clone(),
+        }
     }
 
     pub fn lookup(&self, name: &String) -> ValueResult {
-        self
-            .locals
+        self.locals
             .borrow()
             .last()
             .and_then(|scope| scope.get(name))

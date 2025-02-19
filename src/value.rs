@@ -34,7 +34,7 @@ impl Value {
         Rc::new(Value::List(List::nil()))
     }
 
-    pub fn of<T>(value: T) -> Rc<Value> where T: Into<Value> {
+    pub fn of<T: Into<Value>>(value: T) -> Rc<Value> {
         Rc::new(value.into())
     }
 }
@@ -81,7 +81,7 @@ impl From<Expression<'_>> for Value {
                 expressions
                     .into_iter()
                     .map(|expr| Rc::new(expr.into()))
-                    .collect()
+                    .collect(),
             ),
         }
     }
