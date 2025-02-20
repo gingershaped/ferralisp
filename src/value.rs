@@ -43,16 +43,7 @@ impl Display for Value {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Value::List(values) => {
-                let values: Vec<&Rc<Value>> = values.into_iter().collect();
-                write!(f, "[")?;
-                for (index, value) in values.iter().enumerate() {
-                    value.fmt(f)?;
-                    if index != values.len() - 1 {
-                        write!(f, " ")?;
-                    }
-                }
-                write!(f, "]")?;
-                Ok(())
+                values.fmt(f)
             }
             Value::Builtin(builtin) => {
                 write!(
