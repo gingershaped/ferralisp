@@ -144,11 +144,11 @@ impl Machine {
             raw_args
         );
         // all of this is mutable so TCE can update it
-        let mut scope = self.scope.local();
         let mut call_info = self.call_information(function, raw_args)?;
         let mut head: Option<Rc<Value>>;
         let mut body: Rc<Value>;
         let mut function = function;
+        let mut scope = self.scope.local();
 
         loop {
             trace!("current call information: {:?}", call_info);
