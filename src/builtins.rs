@@ -214,3 +214,119 @@ pub static BUILTINS: LazyLock<HashMap<&'static str, Builtin>> = LazyLock::new(||
         },
     ])
 });
+
+#[cfg(test)]
+mod test {
+    use std::rc::Rc;
+
+    use test_log::test;
+
+    use crate::{machine::Machine, parser::parse_expression, value::Value};
+
+    macro_rules! assert_eval {
+        ($input:expr, $output:expr) => {
+            let mut machine = Machine::new();
+
+            assert_eq!(
+                machine.eval(Rc::new(
+                    parse_expression($input)
+                        .expect("failed to parse input")
+                        .into()
+                )),
+                Ok(Rc::new(
+                    parse_expression($output)
+                        .expect("failed to parse output")
+                        .into()
+                ))
+            )
+        };
+    }
+
+    #[test]
+    fn cons() {
+        assert_eval!("(c 1 (q (2 3)))", "(1 2 3)");
+    }
+
+    #[test]
+    fn head() {
+        assert_eval!("(h (q (1 2 3)))", "1");
+    }
+
+    #[test]
+    fn tail() {
+        assert_eval!("(t (q (1 2 3)))", "(2 3)");
+    }
+
+    #[test]
+    fn add() {
+        assert_eval!("(a 1 1)", "2");
+    }
+
+    #[test]
+    fn subtract() {
+        assert_eval!("(s 1 1)", "0");
+    }
+
+    #[test]
+    fn less_than() {
+        assert_eval!("(l 1 2)", "1");
+        assert_eval!("(l 2 1)", "0");
+    }
+
+    #[test]
+    fn equal() {
+        assert_eval!("(e 1 1)", "1");
+        assert_eval!("(e 1 0)", "0");
+    }
+
+    #[test]
+    fn eval() {
+        assert_eval!("(v (q 1))", "1");
+    }
+
+    #[test]
+    fn string() {
+        assert_eval!("(string (q (58 51)))", ":3");
+    }
+
+    #[test]
+    fn chars() {
+        assert_eval!("(chars (q :3))", "(58 51)");
+    }
+
+    #[test]
+    fn type_() {
+        assert_eval!("(type ())", "List");
+        assert_eval!("(type type)", "Builtin");
+        assert_eval!("(type 1)", "Integer");
+        assert_eval!("(type (q type))", "Name");
+    }
+
+    #[test]
+    fn quote() {
+        assert_eval!("(q (1 2 3))", "(1 2 3)");
+        assert_eval!("(q q)", "q");
+        assert_eval!("(q 1)", "1");
+        assert_eval!("(q (q q))", "(q q)");
+    }
+
+    #[test]
+    fn if_() {
+        assert_eval!("(i 1 1 2)", "1");
+        assert_eval!("(i 0 1 2)", "2");
+    }
+
+    #[test]
+    fn def() {
+        let mut machine = Machine::new();
+
+        assert_eq!(
+            machine.eval(Rc::new(parse_expression("(d the_answer 42)").unwrap().into())),
+            Ok(Value::of("the_answer")),
+        );
+        assert_eq!(
+            machine.eval(Value::of("the_answer")),
+            Ok(Value::of(42)),
+        );
+    }
+}

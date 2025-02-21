@@ -18,7 +18,7 @@ parser! {
         rule list() -> Vec<Expression<'input>> =
             "(" _ expressions:(expression() ** _) _ (![_] / ")") { expressions }
 
-        rule expression() -> Expression<'input> = (
+        pub rule expression() -> Expression<'input> = (
             name:name() {
                 name.parse::<u64>().map_or_else(
                     |_| Expression::Name(name),
@@ -34,6 +34,10 @@ parser! {
 
 pub fn parse<'input>(input: &'input str) -> Result<Vec<Expression<'input>>, ParseError<LineCol>> {
     tinylisp::program(input.trim())
+}
+
+pub fn parse_expression<'input>(input: &'input str) -> Result<Expression<'input>, ParseError<LineCol>> {
+    tinylisp::expression(input.trim())
 }
 
 #[cfg(test)]
