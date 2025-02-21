@@ -228,7 +228,7 @@ impl Machine {
                 if let Value::List(body) = body.as_ref() {
                     if let Some((_, raw_args)) = body.divide() {
                         function = head_contents;
-                        trace!("TCE recursing to new function {:?}", function);
+                        trace!("TCE recursing to new function {}", function);
                         call_info = self.call_information(head_contents, raw_args)?;
                         scope.clear();
                         continue;

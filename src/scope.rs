@@ -1,6 +1,8 @@
 //! HashMap wrappers for storing a machine's global and local scopes.
 
-use std::{cell::RefCell, collections::HashMap, rc::Rc};
+use std::{cell::RefCell, collections::HashMap, fmt::Display, rc::Rc};
+
+use log::trace;
 
 use crate::{
     builtins::BUILTINS,
@@ -33,6 +35,7 @@ impl LocalScope {
 
 impl Drop for LocalScope {
     fn drop(&mut self) {
+        trace!("popping local scope");
         self.locals.borrow_mut().pop();
     }
 }
@@ -62,10 +65,12 @@ impl GlobalScope {
     }
 
     pub fn insert(&mut self, key: String, value: Rc<Value>) {
+        trace!("defining new global {} = {}", key, value);
         self.globals.insert(key, value);
     }
 
     pub fn local(&self) -> LocalScope {
+        trace!("pushing local scope");
         self.locals.borrow_mut().push(HashMap::new());
         LocalScope {
             locals: self.locals.clone(),
@@ -78,11 +83,44 @@ impl GlobalScope {
             .last()
             .and_then(|scope| scope.get(name))
             .or_else(|| self.globals.get(name))
-            .ok_or_else(|| Error::UndefinedName(name.to_string()))
+            .ok_or_else(|| {
+                trace!("failed to look up name {}! current scopes: {}", name, self);
+                Error::UndefinedName(name.to_string())
+            })
             .cloned()
     }
 
     pub fn global_lookup(&self, name: &String) -> Option<&Rc<Value>> {
         self.globals.get(name)
+    }
+}
+
+impl Display for GlobalScope {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        writeln!(f, "GlobalScope {{")?;
+        
+        writeln!(f, "  globals:")?;
+        for (key, value) in self.globals.iter() {
+            writeln!(f, "    {} = {}", key, value)?;
+        }
+        writeln!(f)?;
+
+        {
+            let locals = self.locals.borrow();
+            for (index, scope) in locals.iter().enumerate() {
+                writeln!(f, "  local scope {}:", index)?;
+                if scope.is_empty() {
+                    writeln!(f, "    <empty>")?;
+                } else {
+                    for (key, value) in scope.iter() {
+                        writeln!(f, "    {} = {}", key, value)?;
+                    }
+                }
+                writeln!(f)?;
+            }
+        }
+
+        writeln!(f, "}}")?;
+        Ok(())
     }
 }
