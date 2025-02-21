@@ -11,6 +11,7 @@ use crate::{
 type Scope = HashMap<String, Rc<Value>>;
 type Locals = Rc<RefCell<Vec<Scope>>>;
 
+#[derive(Debug)]
 pub struct LocalScope {
     locals: Locals,
 }
@@ -36,6 +37,7 @@ impl Drop for LocalScope {
     }
 }
 
+#[derive(Debug)]
 pub struct GlobalScope {
     globals: Scope,
     locals: Locals,

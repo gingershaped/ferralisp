@@ -3,6 +3,7 @@
 use std::rc::Rc;
 
 use itertools::{EitherOrBoth, Itertools};
+use log::trace;
 use thiserror::Error;
 
 use crate::{list::List, scope::GlobalScope, value::Value};
@@ -46,17 +47,20 @@ pub enum Error {
 
 pub type ValueResult = Result<Rc<Value>, Error>;
 
+#[derive(Debug)]
 enum ArgumentNames {
     NAdic(Vec<String>),
     Variadic(String),
 }
 
+#[derive(Debug)]
 struct CallInformation {
     argument_names: ArgumentNames,
     arguments: Vec<Rc<Value>>,
     body: Rc<Value>,
 }
 
+#[derive(Debug)]
 pub struct Machine {
     pub scope: GlobalScope,
 }
@@ -134,14 +138,17 @@ impl Machine {
     /// call stack. certain builtins (those marked as `tce` in `builtins.rs`) may also be used
     /// without disabling this optimization.
     fn call(&mut self, function: &List<Rc<Value>>, raw_args: List<&Rc<Value>>) -> ValueResult {
+        trace!("calling user-defined function {} with raw_args {}", function, raw_args);
         // all of this is mutable so TCE can update it
         let mut scope = self.scope.local();
         let mut call_info = self.call_information(function, raw_args)?;
         let mut head: Option<Rc<Value>>;
-        let mut body = call_info.body;
+        let mut body: Rc<Value>;
         let mut function = function;
 
         loop {
+            trace!("current call information: {:?}", call_info);
+            body = call_info.body;
             // bind argument values to their names in the local scope
             match call_info.argument_names {
                 ArgumentNames::NAdic(ref names) => {
@@ -184,6 +191,7 @@ impl Machine {
                     );
                 }
             }
+            trace!("local scope: {:?}", scope);
 
             // tail-call elimination
             // most of this code is copied from the original tinylisp,
@@ -195,6 +203,7 @@ impl Machine {
                     head = Some(self.eval(body_head.clone())?);
                     if let Some(Value::Builtin(builtin)) = head.as_deref() {
                         if builtin.eval_during_tce {
+                            trace!("evaluating tce builtin {:?}", builtin);
                             body = (builtin.body)(body_tail.into_iter().cloned().collect(), self)?;
                             continue;
                         }
@@ -208,9 +217,10 @@ impl Machine {
                 // if so, replace the original call's arguments with the updated ones,
                 // the original function with the new (possibly identical) function,
                 // and go back to the start of the loop
-                function = head_contents;
                 if let Value::List(body) = body.as_ref() {
                     if let Some((_, raw_args)) = body.divide() {
+                        function = head_contents;
+                        trace!("TCE recursing to new function {:?}", function);
                         call_info = self.call_information(head_contents, raw_args)?;
                         scope.clear();
                         continue;
@@ -220,6 +230,7 @@ impl Machine {
                 return Err(Error::UncallableValue(body.as_ref().clone()));
             } else {
                 // we're done recursing, evaluate the final expression and return it
+                trace!("TCE completed, final body: {:?}", body);
                 return self.eval(body);
             }
         }
@@ -227,22 +238,27 @@ impl Machine {
 
     /// evaluate a value as described in the tinylisp spec
     pub fn eval(&mut self, value: Rc<Value>) -> ValueResult {
+        trace!("evaluating value {}", value);
         match value.as_ref() {
             Value::List(contents) => {
                 match contents.divide() {
                     // nil evaluates to itself
                     None => Ok(value),
                     // otherwise it's a function call
-                    Some((target, args)) => match self.eval(target.clone())?.as_ref() {
-                        Value::List(function) => self.call(function, args),
-                        Value::Builtin(builtin) => {
-                            let mut args = args.into_iter().cloned().collect();
-                            if !builtin.is_macro {
-                                args = self.evaluate_args(args)?;
+                    Some((target, args)) => {
+                        trace!("attempting to invoke {} with raw_args {}", target, args);
+                        match self.eval(target.clone())?.as_ref() {
+                            Value::List(function) => self.call(function, args),
+                            Value::Builtin(builtin) => {
+                                let mut args = args.into_iter().cloned().collect();
+                                if !builtin.is_macro {
+                                    args = self.evaluate_args(args)?;
+                                }
+                                trace!("invoking builtin {:?} with args {:?}", builtin, args);
+                                (builtin.body)(args, self)
                             }
-                            (builtin.body)(args, self)
+                            other => Err(Error::UncallableValue(other.clone())),
                         }
-                        other => Err(Error::UncallableValue(other.clone())),
                     },
                 }
             }

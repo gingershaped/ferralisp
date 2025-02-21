@@ -95,3 +95,15 @@ impl From<&str> for Value {
         Value::Name(value.to_string())
     }
 }
+
+impl FromIterator<Value> for Value {
+    fn from_iter<T: IntoIterator<Item = Value>>(iter: T) -> Self {
+        Value::List(iter.into_iter().map(|v| Rc::new(v)).collect())
+    }
+}
+
+impl FromIterator<Rc<Value>> for Value {
+    fn from_iter<T: IntoIterator<Item = Rc<Value>>>(iter: T) -> Self {
+        Value::List(iter.into_iter().collect())
+    }
+}
