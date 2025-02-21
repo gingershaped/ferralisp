@@ -3,7 +3,7 @@
 use std::rc::Rc;
 
 use itertools::{EitherOrBoth, Itertools};
-use log::trace;
+use tracing::{instrument, trace};
 use thiserror::Error;
 
 use crate::{list::List, scope::GlobalScope, value::Value};
@@ -137,12 +137,8 @@ impl Machine {
     /// will be optimized into a loop, allowing them to recurse infinitely without overflowing the Rust
     /// call stack. certain builtins (those marked as `tce` in `builtins.rs`) may also be used
     /// without disabling this optimization.
+    #[instrument()]
     fn call(&mut self, function: &List<Rc<Value>>, raw_args: List<&Rc<Value>>) -> ValueResult {
-        trace!(
-            "calling user-defined function {} with raw_args {}",
-            function,
-            raw_args
-        );
         // all of this is mutable so TCE can update it
         let mut call_info = self.call_information(function, raw_args)?;
         let mut head: Option<Rc<Value>>;
@@ -195,7 +191,7 @@ impl Machine {
                     );
                 }
             }
-            trace!("local scope: {:?}", scope);
+            trace!("local scope: {}", scope);
 
             // tail-call elimination
             // most of this code is copied from the original tinylisp,
@@ -245,8 +241,8 @@ impl Machine {
     }
 
     /// evaluate a value as described in the tinylisp spec
+    #[instrument(skip(self))]
     pub fn eval(&mut self, value: Rc<Value>) -> ValueResult {
-        trace!("evaluating value {}", value);
         match value.as_ref() {
             Value::List(contents) => {
                 match contents.divide() {

@@ -1,8 +1,8 @@
 //! HashMap wrappers for storing a machine's global and local scopes.
 
-use std::{cell::RefCell, collections::HashMap, fmt::Display, rc::Rc};
+use std::{cell::RefCell, collections::HashMap, fmt::{Debug, Display}, rc::Rc};
 
-use log::trace;
+use tracing::trace;
 
 use crate::{
     builtins::BUILTINS,
@@ -13,7 +13,6 @@ use crate::{
 type Scope = HashMap<String, Rc<Value>>;
 type Locals = Rc<RefCell<Vec<Scope>>>;
 
-#[derive(Debug)]
 pub struct LocalScope {
     locals: Locals,
 }
@@ -40,7 +39,26 @@ impl Drop for LocalScope {
     }
 }
 
-#[derive(Debug)]
+impl Debug for LocalScope {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        writeln!(f, "LocalScope {{")?;
+        self.scope(|scope| {
+            for (key, value) in scope.iter() {
+                writeln!(f, "    {} = {}", key, value)?;
+            }
+            Ok(())
+        })?;
+        writeln!(f, "}}")?;
+        Ok(())
+    }
+}
+
+impl Display for LocalScope {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        Debug::fmt(self, f)
+    }
+}
+
 pub struct GlobalScope {
     globals: Scope,
     locals: Locals,
@@ -95,7 +113,7 @@ impl GlobalScope {
     }
 }
 
-impl Display for GlobalScope {
+impl Debug for GlobalScope {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         writeln!(f, "GlobalScope {{")?;
         
@@ -122,5 +140,11 @@ impl Display for GlobalScope {
 
         writeln!(f, "}}")?;
         Ok(())
+    }
+}
+
+impl Display for GlobalScope {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        Debug::fmt(self, f)
     }
 }

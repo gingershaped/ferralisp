@@ -1,6 +1,6 @@
 //! an implementation of a singly-linked list
 
-use std::{fmt::Display, ops::Index, rc::Rc};
+use std::{fmt::{Debug, Display}, ops::Index, rc::Rc};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 enum Node<T> {
@@ -8,7 +8,7 @@ enum Node<T> {
     Nil,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct List<T> {
     node: Node<T>,
     length: usize,
@@ -191,6 +191,20 @@ impl<'a, T> From<List<&Rc<T>>> for List<Rc<T>> {
 }
 
 impl<T: Display> Display for List<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "(")?;
+        for (index, value) in self.into_iter().enumerate() {
+            value.fmt(f)?;
+            if index != self.len() - 1 {
+                write!(f, " ")?;
+            }
+        }
+        write!(f, ")")?;
+        Ok(())
+    }
+}
+
+impl<T: Display> Debug for List<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "(")?;
         for (index, value) in self.into_iter().enumerate() {

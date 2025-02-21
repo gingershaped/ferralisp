@@ -5,16 +5,24 @@ use itertools::{EitherOrBoth, Itertools};
 
 macro_rules! tl_test {
     ($file:ident) => {
-        #[test_log::test]
+        #[test]
         fn $file() {
-            let inputs = parse(include_str!(concat!("reference/", stringify!($file), ".tl")))
-                .expect(concat!(
-                    "failed to parse input for test ",
-                    stringify!(primitives),
-                ))
-                .into_iter()
-                .map(|v| Value::of(v))
-                .collect::<Vec<Rc<Value>>>();
+            tracing_subscriber::fmt::fmt()
+                .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
+                .event_format(tracing_subscriber::fmt::format().pretty())
+                .init();
+            let inputs = parse(include_str!(concat!(
+                "reference/",
+                stringify!($file),
+                ".tl"
+            )))
+            .expect(concat!(
+                "failed to parse input for test ",
+                stringify!(primitives),
+            ))
+            .into_iter()
+            .map(|v| Value::of(v))
+            .collect::<Vec<Rc<Value>>>();
             let outputs = include_str!(concat!("reference/", stringify!($file), ".tl.out")).lines();
 
             let mut machine = Machine::new();
