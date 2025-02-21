@@ -1,0 +1,20 @@
+nil
+list
+lambda
+quote-each
+apply
+map
+partial
+(-1 -2 -3 -4)
+foldl*
+-
++
+1
+15
+divides?
+prime?*
+prime?
+(0 1 1 0 1 1 0)
+even?
+odd?
+(1 0 1 0 1 0 0 0 1)
