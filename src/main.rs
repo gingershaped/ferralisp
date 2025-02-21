@@ -44,7 +44,10 @@ fn main() -> Result<(), Box<dyn Error>> {
     for expression in parsed {
         match machine.eval(Rc::new(expression.into())) {
             Ok(value) => println!("{}", value),
-            Err(err) => println!("error!! {}", err),
+            Err(err) => {
+                println!("error!! {}", err);
+                break;
+            },
         }
     }
 
