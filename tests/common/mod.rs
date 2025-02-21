@@ -1,6 +1,6 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, rc::Rc};
 
-use ferralisp::{machine::Machine, scope::GlobalScope, value::Value};
+use ferralisp::{machine::Machine, parser::parse, scope::GlobalScope, value::Value};
 
 pub fn test_machine() -> Machine {
     Machine {
@@ -9,4 +9,8 @@ pub fn test_machine() -> Machine {
             Value::of(11111),
         )])),
     }
+}
+
+pub fn parse_single(input: &str) -> Rc<Value> {
+    Rc::new(parse(input).unwrap().pop().unwrap().into())
 }

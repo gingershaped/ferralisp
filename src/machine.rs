@@ -203,7 +203,7 @@ impl Machine {
                     head = Some(self.eval(body_head.clone())?);
                     if let Some(Value::Builtin(builtin)) = head.as_deref() {
                         if builtin.eval_during_tce {
-                            trace!("evaluating tce builtin {:?}", builtin);
+                            trace!("invoking tce builtin {} with args {}", builtin.name, body_tail);
                             body = (builtin.body)(body_tail.into_iter().cloned().collect(), self)?;
                             continue;
                         }
@@ -230,7 +230,7 @@ impl Machine {
                 return Err(Error::UncallableValue(body.as_ref().clone()));
             } else {
                 // we're done recursing, evaluate the final expression and return it
-                trace!("TCE completed, final body: {:?}", body);
+                trace!("TCE completed, final body: {}", body);
                 return self.eval(body);
             }
         }
@@ -254,7 +254,7 @@ impl Machine {
                                 if !builtin.is_macro {
                                     args = self.evaluate_args(args)?;
                                 }
-                                trace!("invoking builtin {:?} with args {:?}", builtin, args);
+                                trace!("invoking builtin {} with args {}", builtin.name, args.iter().join(", "));
                                 (builtin.body)(args, self)
                             }
                             other => Err(Error::UncallableValue(other.clone())),

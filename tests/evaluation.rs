@@ -2,7 +2,7 @@ mod common;
 
 use std::rc::Rc;
 
-use common::test_machine;
+use common::{parse_single, test_machine};
 use ferralisp::{parser::parse, value::Value};
 use test_log::test;
 
@@ -16,18 +16,31 @@ fn primitive_eval() {
 }
 
 #[test]
-fn functions_and_macros() {
+fn nadic_function() {
     let mut machine = test_machine();
 
-    let nadic_function: Rc<Value> =
-        Rc::new(parse("(q ((frob) frob))").unwrap().pop().unwrap().into());
+    assert_eq!(
+        machine.eval(parse_single("((q ((frob) frob)) 123)")),
+        Ok(Value::of(123))
+    );
+}
+
+#[test]
+fn variadic_function() {
+    let mut machine = test_machine();
 
     assert_eq!(
-        machine.eval(Rc::new(
-            vec![nadic_function.clone(), Value::of(123)]
-                .into_iter()
-                .collect()
-        )),
-        Ok(Value::of(123))
+        machine.eval(parse_single("((q (frob (h frob))) 1 2 3)")),
+        Ok(Value::of(1)),
+    );
+}
+
+#[test]
+fn macro_function() {
+    let mut machine = test_machine();
+
+    assert_eq!(
+        machine.eval(parse_single("((q (() args (v (h args)))) (h (q (4 5 6))) 2 3)")),
+        Ok(Value::of(4)),
     );
 }
