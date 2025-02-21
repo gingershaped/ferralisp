@@ -138,7 +138,11 @@ impl Machine {
     /// call stack. certain builtins (those marked as `tce` in `builtins.rs`) may also be used
     /// without disabling this optimization.
     fn call(&mut self, function: &List<Rc<Value>>, raw_args: List<&Rc<Value>>) -> ValueResult {
-        trace!("calling user-defined function {} with raw_args {}", function, raw_args);
+        trace!(
+            "calling user-defined function {} with raw_args {}",
+            function,
+            raw_args
+        );
         // all of this is mutable so TCE can update it
         let mut scope = self.scope.local();
         let mut call_info = self.call_information(function, raw_args)?;
@@ -203,7 +207,11 @@ impl Machine {
                     head = Some(self.eval(body_head.clone())?);
                     if let Some(Value::Builtin(builtin)) = head.as_deref() {
                         if builtin.eval_during_tce {
-                            trace!("invoking tce builtin {} with args {}", builtin.name, body_tail);
+                            trace!(
+                                "invoking tce builtin {} with args {}",
+                                builtin.name,
+                                body_tail
+                            );
                             body = (builtin.body)(body_tail.into_iter().cloned().collect(), self)?;
                             continue;
                         }
@@ -254,12 +262,16 @@ impl Machine {
                                 if !builtin.is_macro {
                                     args = self.evaluate_args(args)?;
                                 }
-                                trace!("invoking builtin {} with args {}", builtin.name, args.iter().join(", "));
+                                trace!(
+                                    "invoking builtin {} with args {}",
+                                    builtin.name,
+                                    args.iter().join(", ")
+                                );
                                 (builtin.body)(args, self)
                             }
                             other => Err(Error::UncallableValue(other.clone())),
                         }
-                    },
+                    }
                 }
             }
             // no need to increment the refcount here

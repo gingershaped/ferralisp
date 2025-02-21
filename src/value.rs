@@ -42,9 +42,7 @@ impl Value {
 impl Display for Value {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Value::List(values) => {
-                values.fmt(f)
-            }
+            Value::List(values) => values.fmt(f),
             Value::Builtin(builtin) => {
                 write!(
                     f,

@@ -1,9 +1,7 @@
 mod common;
 
-use std::rc::Rc;
-
 use common::{parse_single, test_machine};
-use ferralisp::{parser::parse, value::Value};
+use ferralisp::value::Value;
 use test_log::test;
 
 #[test]
@@ -40,7 +38,9 @@ fn macro_function() {
     let mut machine = test_machine();
 
     assert_eq!(
-        machine.eval(parse_single("((q (() args (v (h args)))) (h (q (4 5 6))) 2 3)")),
+        machine.eval(parse_single(
+            "((q (() args (v (h args)))) (h (q (4 5 6))) 2 3)"
+        )),
         Ok(Value::of(4)),
     );
 }
