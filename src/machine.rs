@@ -3,7 +3,7 @@
 use std::rc::Rc;
 
 use itertools::{EitherOrBoth, Itertools};
-use tracing::{instrument, trace};
+use tracing::{error, instrument, trace};
 use thiserror::Error;
 
 use crate::{list::List, scope::GlobalScope, value::Value};
@@ -137,7 +137,7 @@ impl Machine {
     /// will be optimized into a loop, allowing them to recurse infinitely without overflowing the Rust
     /// call stack. certain builtins (those marked as `tce` in `builtins.rs`) may also be used
     /// without disabling this optimization.
-    #[instrument()]
+    #[instrument(skip(self))]
     fn call(&mut self, function: &List<Rc<Value>>, raw_args: List<&Rc<Value>>) -> ValueResult {
         // all of this is mutable so TCE can update it
         let mut call_info = self.call_information(function, raw_args)?;
@@ -230,7 +230,7 @@ impl Machine {
                         continue;
                     }
                 }
-                // tried to recurse into an uncallable value
+                error!("tried to recurse into an uncallable value {}", body);
                 return Err(Error::UncallableValue(body.as_ref().clone()));
             } else {
                 // we're done recursing, evaluate the final expression and return it
@@ -265,7 +265,10 @@ impl Machine {
                                 );
                                 (builtin.body)(args, self)
                             }
-                            other => Err(Error::UncallableValue(other.clone())),
+                            other => {
+                                error!("uncallable value {}", other);
+                                Err(Error::UncallableValue(other.clone()))
+                            },
                         }
                     }
                 }
