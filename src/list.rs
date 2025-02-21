@@ -195,7 +195,7 @@ impl<T: Display> Display for List<T> {
         write!(f, "(")?;
         for (index, value) in self.into_iter().enumerate() {
             value.fmt(f)?;
-            if index != self.len() {
+            if index != self.len() - 1 {
                 write!(f, " ")?;
             }
         }
