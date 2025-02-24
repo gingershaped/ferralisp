@@ -3,8 +3,8 @@
 use std::rc::Rc;
 
 use itertools::{EitherOrBoth, Itertools};
-use tracing::{error, instrument, trace};
 use thiserror::Error;
+use tracing::{error, instrument, trace};
 
 use crate::{list::List, scope::GlobalScope, value::Value};
 
@@ -47,13 +47,13 @@ pub enum Error {
 
 pub type ValueResult = Result<Rc<Value>, Error>;
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 enum ArgumentNames {
     NAdic(Vec<String>),
     Variadic(String),
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 struct CallInformation {
     argument_names: ArgumentNames,
     arguments: Vec<Rc<Value>>,
@@ -137,7 +137,7 @@ impl Machine {
     /// will be optimized into a loop, allowing them to recurse infinitely without overflowing the Rust
     /// call stack. certain builtins (those marked as `tce` in `builtins.rs`) may also be used
     /// without disabling this optimization.
-    #[instrument(skip(self))]
+    #[instrument()]
     fn call(&mut self, function: &List<Rc<Value>>, raw_args: List<&Rc<Value>>) -> ValueResult {
         // all of this is mutable so TCE can update it
         let mut call_info = self.call_information(function, raw_args)?;
@@ -268,7 +268,7 @@ impl Machine {
                             other => {
                                 error!("uncallable value {}", other);
                                 Err(Error::UncallableValue(other.clone()))
-                            },
+                            }
                         }
                     }
                 }
@@ -278,5 +278,70 @@ impl Machine {
             Value::Integer(_) => Ok(value),
             Value::Name(name) => self.scope.lookup(name),
         }
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use crate::{
+        machine::{ArgumentNames, CallInformation},
+        parser::parse_expression,
+        value::Value,
+    };
+
+    use super::Machine;
+
+    macro_rules! list {
+        ($code:literal) => {
+            if let Value::List(list) = parse_expression($code).unwrap().into() {
+                list
+            } else {
+                unreachable!()
+            }
+        };
+    }
+
+    #[test]
+    fn call_info() {
+        let mut machine = Machine::new();
+
+        let nadic_function = list!("((args) args)");
+        let variadic_function = list!("(args args)");
+        let nadic_macro = list!("(() (args) args)");
+        let variadic_macro = list!("(() args args)");
+        let args = list!("((q 42))");
+
+        assert_eq!(
+            machine.call_information(&nadic_function, (&args).into_iter().by_ref().collect()),
+            Ok(CallInformation {
+                argument_names: ArgumentNames::NAdic(vec!["args".to_string()]),
+                arguments: vec![Value::of(42)],
+                body: Value::of("args")
+            })
+        );
+        assert_eq!(
+            machine.call_information(&variadic_function, (&args).into_iter().by_ref().collect()),
+            Ok(CallInformation {
+                argument_names: ArgumentNames::Variadic("args".to_string()),
+                arguments: vec![Value::of(42)],
+                body: Value::of("args")
+            })
+        );
+        assert_eq!(
+            machine.call_information(&nadic_macro, (&args).into_iter().by_ref().collect()),
+            Ok(CallInformation {
+                argument_names: ArgumentNames::NAdic(vec!["args".to_string()]),
+                arguments: vec![vec![Value::of("q"), Value::of(42)].into_iter().collect::<Value>().into()],
+                body: Value::of("args")
+            })
+        );
+        assert_eq!(
+            machine.call_information(&variadic_macro, (&args).into_iter().by_ref().collect()),
+            Ok(CallInformation {
+                argument_names: ArgumentNames::Variadic("args".to_string()),
+                arguments: vec![vec![Value::of("q"), Value::of(42)].into_iter().collect::<Value>().into()],
+                body: Value::of("args")
+            })
+        );
     }
 }
