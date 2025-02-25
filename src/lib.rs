@@ -1,6 +1,6 @@
 mod builtins;
 pub mod machine;
-pub mod stdlib;
+pub mod loaders;
 pub mod parser;
 pub mod scope;
 pub mod value;

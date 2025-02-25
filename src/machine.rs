@@ -1,16 +1,16 @@
 //! the machine, or the thing that actually executes tinylisp code.
 
-use std::{
-    collections::HashSet,
-    fmt::Debug,
-    rc::Rc,
-};
+use std::{collections::HashSet, env::current_dir, fmt::Debug, rc::Rc};
 
 use itertools::{EitherOrBoth, Itertools};
 use thiserror::Error;
 use tracing::{error, instrument, trace};
 
-use crate::{scope::GlobalScope, stdlib::StdlibLoader, value::Value};
+use crate::{
+    loaders::{FileLoader, StdlibLoader},
+    scope::GlobalScope,
+    value::Value,
+};
 
 #[derive(Error, Debug, PartialEq)]
 pub enum Error {
@@ -86,18 +86,24 @@ impl Debug for dyn World {
 pub enum LoadResult {
     NotFound,
     Ok { values: Vec<Value>, cache: bool },
-    Err(Error),
+    Err(Box<dyn std::error::Error>),
 }
 
 pub trait Loader {
     fn name(&self) -> &'static str;
-    fn load(&self, path: &str) -> LoadResult;
+    fn load(&self, path: &str, loads: &Vec<ModuleLoad>) -> LoadResult;
 }
 
 impl Debug for dyn Loader {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "<loader {}>", self.name())
     }
+}
+
+#[derive(Debug, PartialEq)]
+pub struct ModuleLoad {
+    pub loader: &'static str,
+    pub path: String,
 }
 
 #[derive(Debug, PartialEq)]
@@ -119,6 +125,7 @@ pub struct Machine {
     pub(crate) world: Box<dyn World>,
     loaders: Vec<Box<dyn Loader>>,
     loaded_modules: HashSet<String>,
+    module_origins: Vec<ModuleLoad>,
 }
 
 impl Machine {
@@ -128,27 +135,50 @@ impl Machine {
             world: Box::new(world),
             loaders,
             loaded_modules: HashSet::new(),
+            module_origins: vec![],
         }
     }
 
     pub fn with_default_loaders(world: impl World + 'static) -> Self {
-        Self::new(world, vec![Box::new(StdlibLoader)])
+        Self::new(
+            world,
+            vec![
+                Box::new(FileLoader::new(
+                    current_dir().expect("current directory is invalid"),
+                )),
+                Box::new(StdlibLoader),
+            ],
+        )
     }
 
     pub fn load(&mut self, path: String) -> ValueResult {
         if !self.loaded_modules.contains(&path) {
             for loader in &self.loaders {
-                match (*loader).load(&path) {
+                match (*loader).load(&path, &self.module_origins) {
                     LoadResult::NotFound => (),
                     LoadResult::Ok { values, cache } => {
+                        self.module_origins.push(ModuleLoad {
+                            loader: loader.name(),
+                            path,
+                        });
                         for value in values {
                             self.eval(value.into()).map_err(|source| {
+                                let path = self
+                                    .module_origins
+                                    .pop()
+                                    .expect("module origin stack underflow")
+                                    .path;
                                 Error::ModuleEvaluationError {
-                                    module: path.clone(),
+                                    module: path,
                                     source: Box::new(source),
                                 }
                             })?;
                         }
+                        let path = self
+                            .module_origins
+                            .pop()
+                            .expect("module origin stack underflow")
+                            .path;
                         if cache {
                             self.loaded_modules.insert(path);
                         }
@@ -158,7 +188,7 @@ impl Machine {
                         return Err(Error::ModuleLoadError(ModuleLoadError {
                             loader: loader.name(),
                             module: path,
-                            source: Box::new(source),
+                            source,
                         }));
                     }
                 }
