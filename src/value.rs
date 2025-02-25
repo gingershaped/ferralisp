@@ -7,15 +7,15 @@
 //! all values are truthy for the purposes of builtins like `i`,
 //! except for the number zero and the empty list (nil).
 
-use std::{fmt::Display, rc::Rc};
+use std::{fmt::{Debug, Display}, rc::Rc};
 
 use strum_macros::IntoStaticStr;
 
-use crate::{builtins::Builtin, list::List, parser::Expression};
+use crate::{builtins::Builtin, parser::Expression};
 
-#[derive(Clone, Debug, IntoStaticStr, PartialEq, Eq)]
+#[derive(Clone, IntoStaticStr, PartialEq, Eq)]
 pub enum Value {
-    List(List<Rc<Value>>),
+    List(Vec<Rc<Value>>),
     Builtin(Builtin),
     Integer(i64),
     Name(String),
@@ -31,7 +31,7 @@ impl Value {
     }
 
     pub fn nil() -> Rc<Value> {
-        Rc::new(Value::List(List::nil()))
+        Rc::new(Value::List(vec![]))
     }
 
     pub fn of<T: Into<Value>>(value: T) -> Rc<Value> {
@@ -39,10 +39,20 @@ impl Value {
     }
 }
 
-impl Display for Value {
+impl Debug for Value {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Value::List(values) => values.fmt(f),
+            Value::List(values) => {
+                write!(f, "(")?;
+                for (index, value) in values.into_iter().enumerate() {
+                    Debug::fmt(value, f)?;
+                    if index != values.len() - 1 {
+                        write!(f, " ")?;
+                    }
+                }
+                write!(f, ")")?;
+                Ok(())
+            },
             Value::Builtin(builtin) => {
                 write!(
                     f,
@@ -58,6 +68,12 @@ impl Display for Value {
             Value::Integer(value) => write!(f, "{}", value),
             Value::Name(name) => write!(f, "{}", name),
         }
+    }
+}
+
+impl Display for Value {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        Debug::fmt(self, f)
     }
 }
 

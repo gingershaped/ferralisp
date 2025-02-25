@@ -2,6 +2,7 @@ nil
 list
 lambda
 quote-each
+((q 1) (q 2) (q 3))
 apply
 map
 partial

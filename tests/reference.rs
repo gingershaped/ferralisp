@@ -1,16 +1,12 @@
 use std::rc::Rc;
-
 use ferralisp::{machine::Machine, parser::parse, value::Value};
 use itertools::{EitherOrBoth, Itertools};
+
 
 macro_rules! tl_test {
     ($file:ident) => {
         #[test]
         fn $file() {
-            tracing_subscriber::fmt::fmt()
-                .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
-                .event_format(tracing_subscriber::fmt::format().pretty())
-                .init();
             let inputs = parse(include_str!(concat!(
                 "reference/",
                 stringify!($file),
@@ -18,7 +14,7 @@ macro_rules! tl_test {
             )))
             .expect(concat!(
                 "failed to parse input for test ",
-                stringify!(primitives),
+                stringify!($file),
             ))
             .into_iter()
             .map(|v| Value::of(v))
@@ -43,4 +39,5 @@ tl_test!(define);
 tl_test!(weird_define);
 tl_test!(conditionals);
 tl_test!(functions);
+tl_test!(length);
 tl_test!(primes);

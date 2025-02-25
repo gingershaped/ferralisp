@@ -23,7 +23,7 @@ impl LocalScope {
         f(scopes.last_mut().expect("local scope stack underflow"))
     }
 
-    pub fn insert(&self, key: String, value: Rc<Value>) {
+    pub fn insert(&mut self, key: String, value: Rc<Value>) {
         self.scope(|scope| scope.insert(key, value));
     }
 

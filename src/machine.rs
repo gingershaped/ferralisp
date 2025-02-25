@@ -6,7 +6,7 @@ use itertools::{EitherOrBoth, Itertools};
 use thiserror::Error;
 use tracing::{error, instrument, trace};
 
-use crate::{list::List, scope::GlobalScope, value::Value};
+use crate::{scope::GlobalScope, value::Value};
 
 #[derive(Error, Debug, PartialEq)]
 pub enum Error {
@@ -17,10 +17,7 @@ pub enum Error {
     #[error("cannot call value {0} because it is not a list or a builtin")]
     UncallableValue(Value),
     #[error("list {value} is not a correctly structured function or macro because: {reason}")]
-    MalformedFunction {
-        value: List<Rc<Value>>,
-        reason: &'static str,
-    },
+    MalformedFunction { value: Value, reason: &'static str },
     #[error("missing argument {argument} while calling {call_target}", argument = match .expected_type {
         Some(expected_type) => format!("{} of type {}", .name, expected_type),
         None => .name.to_string(),
@@ -35,8 +32,9 @@ pub enum Error {
         call_target: Value,
         arguments: Vec<Value>,
     },
-    #[error("wrong argument type passed to argument {name}: expected a {expected_type} but got a value {value}")]
+    #[error("wrong argument type passed to argument {name} of function {alias}: expected a {expected_type} but got a value {value}")]
     WrongBuiltinArgumentType {
+        alias: &'static str,
         name: &'static str,
         expected_type: &'static str,
         value: Value,
@@ -83,15 +81,21 @@ impl Machine {
     /// and evaluate the arguments if it's a macro
     fn call_information(
         &mut self,
-        target: &List<Rc<Value>>,
-        arguments: List<&Rc<Value>>,
+        target: &Rc<Value>,
+        arguments: &[Rc<Value>],
     ) -> Result<CallInformation, Error> {
+        let Value::List(target) = target.as_ref() else {
+            return Err(Error::MalformedFunction {
+                value: target.as_ref().clone(),
+                reason: "it is not a list",
+            });
+        };
         let (raw_argument_names, body, is_macro) = match target.len() {
             2 => (target[0].clone(), target[1].clone(), false),
             3 => (target[1].clone(), target[2].clone(), true),
             _ => {
                 return Err(Error::MalformedFunction {
-                    value: target.clone(),
+                    value: Value::List(target.clone()),
                     reason: "it is not exactly 2 or 3 items long",
                 })
             }
@@ -106,7 +110,7 @@ impl Machine {
                             Ok(name.to_owned())
                         } else {
                             Err(Error::MalformedFunction {
-                                value: target.clone(),
+                                value: Value::List(target.clone()),
                                 reason: "an item in the name list is not a name",
                             })
                         }
@@ -115,7 +119,7 @@ impl Machine {
             ),
             _ => {
                 return Err(Error::MalformedFunction {
-                    value: target.clone(),
+                    value: Value::List(target.clone()),
                     reason: "the name list is not a list",
                 })
             }
@@ -137,18 +141,14 @@ impl Machine {
     /// will be optimized into a loop, allowing them to recurse infinitely without overflowing the Rust
     /// call stack. certain builtins (those marked as `tce` in `builtins.rs`) may also be used
     /// without disabling this optimization.
-    #[instrument()]
-    fn call(&mut self, function: &List<Rc<Value>>, raw_args: List<&Rc<Value>>) -> ValueResult {
+    #[instrument(ret)]
+    fn call(&mut self, call_target: &Rc<Value>, raw_args: &Vec<Rc<Value>>) -> ValueResult {
         // all of this is mutable so TCE can update it
-        let mut call_info = self.call_information(function, raw_args)?;
-        let mut head: Option<Rc<Value>>;
-        let mut body: Rc<Value>;
-        let mut function = function;
+        let mut call_info = self.call_information(call_target, raw_args)?;
         let mut scope = self.scope.local();
 
         loop {
             trace!("current call information: {:?}", call_info);
-            body = call_info.body;
             // bind argument values to their names in the local scope
             match call_info.argument_names {
                 ArgumentNames::NAdic(ref names) => {
@@ -161,7 +161,7 @@ impl Machine {
                             // an argument is missing
                             EitherOrBoth::Left(name) => {
                                 return Err(Error::MissingArgument {
-                                    call_target: Value::List(function.clone()),
+                                    call_target: call_target.as_ref().clone(),
                                     name: name.to_string(),
                                     expected_type: None,
                                 });
@@ -169,7 +169,7 @@ impl Machine {
                             // an extra argument was supplied, split off the rest of the argument list
                             EitherOrBoth::Right(_) => {
                                 return Err(Error::ExtraArguments {
-                                    call_target: Value::List(function.clone()),
+                                    call_target: call_target.as_ref().clone(),
                                     arguments: call_info
                                         .arguments
                                         .split_off(index)
@@ -193,22 +193,13 @@ impl Machine {
             }
             trace!("local scope: {}", scope);
 
-            // tail-call elimination
-            // most of this code is copied from the original tinylisp,
-            // and I will not claim to understand how it actually works
-            head = None;
-            // first flatten builtins which are evaluated during TCE
-            while let Value::List(body_contents) = body.as_ref() {
-                if let Some((body_head, body_tail)) = body_contents.divide() {
-                    head = Some(self.eval(body_head.clone())?);
-                    if let Some(Value::Builtin(builtin)) = head.as_deref() {
+            let mut body = call_info.body.clone();
+            while let Value::List(body_inner) = body.as_ref() {
+                if let Some((head, tail)) = body_inner.split_first() {
+                    let head = self.eval(head.clone())?;
+                    if let Value::Builtin(builtin) = head.as_ref() {
                         if builtin.eval_during_tce {
-                            trace!(
-                                "invoking tce builtin {} with args {}",
-                                builtin.name,
-                                body_tail
-                            );
-                            body = (builtin.body)(body_tail.into_iter().cloned().collect(), self)?;
+                            body = (builtin.body)(tail.to_vec(), self, true)?;
                             continue;
                         }
                     }
@@ -216,45 +207,71 @@ impl Machine {
                 break;
             }
 
-            // are we left with a tail call to a user-defined function?
-            if let Some(Value::List(head_contents)) = head.as_deref() {
-                // if so, replace the original call's arguments with the updated ones,
-                // the original function with the new (possibly identical) function,
-                // and go back to the start of the loop
-                if let Value::List(body) = body.as_ref() {
-                    if let Some((_, raw_args)) = body.divide() {
-                        function = head_contents;
-                        trace!("TCE recursing to new function {}", function);
-                        call_info = self.call_information(head_contents, raw_args)?;
+            if let Value::List(body) = body.as_ref() {
+                if let Some((head, tail)) = body.split_first() {
+                    let head = self.eval(head.clone())?;
+                    if matches!(head.as_ref(), Value::List(_)) {
+                        call_info = self.call_information(&head, tail)?;
                         scope.clear();
                         continue;
                     }
                 }
-                error!("tried to recurse into an uncallable value {}", body);
-                return Err(Error::UncallableValue(body.as_ref().clone()));
-            } else {
-                // we're done recursing, evaluate the final expression and return it
-                trace!("TCE completed, final body: {}", body);
-                return self.eval(body);
             }
+
+            return self.eval(body);
+
+            // let mut call_target = None;
+            // let mut function_body = call_info.body.clone();
+            // trace!("initial function body: {}", &function_body);
+            // while let Value::List(function_inner) = function_body.as_ref() {
+            //     if let Some((head, raw_args)) = function_inner.split_first() {
+            //         call_target = Some(self.eval(head.clone())?);
+            //         trace!("new call target: {}", call_target.as_ref().unwrap());
+            //         // SAFETY: we just set it to Some two lines earlier
+            //         if let Value::Builtin(builtin) = unsafe { call_target.as_ref().unwrap_unchecked() }.as_ref() {
+            //             if builtin.eval_during_tce {
+            //                 trace!("evaluating builtin {} in TCE mode", &builtin.name);
+            //                 function_body = (builtin.body)(raw_args.to_vec(), self, true)?;
+            //                 trace!("builtin returned new function body: {}", &function_body);
+            //                 continue;
+            //             }
+            //         }
+            //     }
+            //     break;
+            // }
+
+            // // is function_body a user-defined function or macro?
+            // if let Some(Value::List(call_target_inner)) = call_target.as_deref() {
+            //     if call_target_inner.len() != 0 {
+            //         // if so, update call_info and go back to the start
+            //         trace!("TCE recursing to new function: {}", &call_target.as_ref().unwrap());
+            //         call_info = self.call_information(call_target_inner, raw_args)?;
+            //         scope.clear();
+            //         continue;
+            //     }
+            // }
+            // // if not, we're done recursing, so eval and return it
+            // trace!("final return value: {}", &function_body);
+            // return self.eval(function_body);
         }
     }
 
     /// evaluate a value as described in the tinylisp spec
-    #[instrument(skip(self))]
+    #[instrument(skip(self), ret)]
     pub fn eval(&mut self, value: Rc<Value>) -> ValueResult {
         match value.as_ref() {
             Value::List(contents) => {
-                match contents.divide() {
+                match contents.split_first() {
                     // nil evaluates to itself
                     None => Ok(value),
                     // otherwise it's a function call
                     Some((target, args)) => {
-                        trace!("attempting to invoke {} with raw_args {}", target, args);
-                        match self.eval(target.clone())?.as_ref() {
-                            Value::List(function) => self.call(function, args),
+                        let mut args: Vec<Rc<Value>> = args.iter().cloned().collect();
+                        trace!("attempting to invoke {} with raw_args {:?}", target, &args);
+                        let target = self.eval(target.clone())?;
+                        match target.as_ref() {
+                            Value::List(_) => self.call(&target, &args),
                             Value::Builtin(builtin) => {
-                                let mut args = args.into_iter().cloned().collect();
                                 if !builtin.is_macro {
                                     args = self.evaluate_args(args)?;
                                 }
@@ -263,7 +280,7 @@ impl Machine {
                                     builtin.name,
                                     args.iter().join(", ")
                                 );
-                                (builtin.body)(args, self)
+                                (builtin.body)(args, self, false)
                             }
                             other => {
                                 error!("uncallable value {}", other);
@@ -283,6 +300,8 @@ impl Machine {
 
 #[cfg(test)]
 mod test {
+    use std::rc::Rc;
+
     use crate::{
         machine::{ArgumentNames, CallInformation},
         parser::parse_expression,
@@ -305,14 +324,14 @@ mod test {
     fn call_info() {
         let mut machine = Machine::new();
 
-        let nadic_function = list!("((args) args)");
-        let variadic_function = list!("(args args)");
-        let nadic_macro = list!("(() (args) args)");
-        let variadic_macro = list!("(() args args)");
+        let nadic_function = Rc::new(parse_expression("((args) args)").unwrap().into());
+        let variadic_function = Rc::new(parse_expression("(args args)").unwrap().into());
+        let nadic_macro = Rc::new(parse_expression("(() (args) args)").unwrap().into());
+        let variadic_macro = Rc::new(parse_expression("(() args args)").unwrap().into());
         let args = list!("((q 42))");
 
         assert_eq!(
-            machine.call_information(&nadic_function, (&args).into_iter().by_ref().collect()),
+            machine.call_information(&nadic_function, &args),
             Ok(CallInformation {
                 argument_names: ArgumentNames::NAdic(vec!["args".to_string()]),
                 arguments: vec![Value::of(42)],
@@ -320,7 +339,7 @@ mod test {
             })
         );
         assert_eq!(
-            machine.call_information(&variadic_function, (&args).into_iter().by_ref().collect()),
+            machine.call_information(&variadic_function, &args),
             Ok(CallInformation {
                 argument_names: ArgumentNames::Variadic("args".to_string()),
                 arguments: vec![Value::of(42)],
@@ -328,18 +347,24 @@ mod test {
             })
         );
         assert_eq!(
-            machine.call_information(&nadic_macro, (&args).into_iter().by_ref().collect()),
+            machine.call_information(&nadic_macro, &args),
             Ok(CallInformation {
                 argument_names: ArgumentNames::NAdic(vec!["args".to_string()]),
-                arguments: vec![vec![Value::of("q"), Value::of(42)].into_iter().collect::<Value>().into()],
+                arguments: vec![vec![Value::of("q"), Value::of(42)]
+                    .into_iter()
+                    .collect::<Value>()
+                    .into()],
                 body: Value::of("args")
             })
         );
         assert_eq!(
-            machine.call_information(&variadic_macro, (&args).into_iter().by_ref().collect()),
+            machine.call_information(&variadic_macro, &args),
             Ok(CallInformation {
                 argument_names: ArgumentNames::Variadic("args".to_string()),
-                arguments: vec![vec![Value::of("q"), Value::of(42)].into_iter().collect::<Value>().into()],
+                arguments: vec![vec![Value::of("q"), Value::of(42)]
+                    .into_iter()
+                    .collect::<Value>()
+                    .into()],
                 body: Value::of("args")
             })
         );

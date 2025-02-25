@@ -17,6 +17,7 @@
     )
     )
 )
+(quote-each (list 1 2 3))
 (d apply
     (lambda (func arglist)
     (v (c (q func) (quote-each arglist)))

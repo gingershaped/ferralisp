@@ -13,65 +13,82 @@ pub struct Builtin {
     pub name: &'static str,
     pub is_macro: bool,
     pub eval_during_tce: bool,
-    pub body: fn(Vec<Rc<Value>>, &mut Machine) -> ValueResult,
+    pub body: fn(Vec<Rc<Value>>, &mut Machine, bool) -> ValueResult,
 }
 
 macro_rules! builtin {
     (
         fn $name:ident($machine:ident, $($arg:tt)*) as $alias:ident $body:block
     ) => {
-        builtin_inner!($alias, $name, false, false, $machine, ($($arg)*), $body)
+        builtin_inner!($alias, $name, false, $machine, ($($arg)*), $body)
     };
     (
         macro $name:ident($machine:ident, $($arg:tt)*) as $alias:ident $body:block
     ) => {
-        builtin_inner!($alias, $name, true, false, $machine, ($($arg)*), $body)
+        builtin_inner!($alias, $name, true, $machine, ($($arg)*), $body)
     };
     (
-        tce fn $name:ident($machine:ident, $($arg:tt)*) as $alias:ident $body:block
+        tce fn $name:ident($machine:ident, $tce_active:ident, $($arg:tt)*) as $alias:ident $body:block
     ) => {
-        builtin_inner!($alias, $name, false, true, $machine, ($($arg)*), $body)
+        builtin_inner!($alias, $name, false, $machine, $tce_active, ($($arg)*), $body)
     };
     (
-        tce macro $name:ident($machine:ident, $($arg:tt)*) as $alias:ident $body:block
+        tce macro $name:ident($machine:ident, $tce_active:ident, $($arg:tt)*) as $alias:ident $body:block
     ) => {
-        builtin_inner!($alias, $name, true, true, $machine, ($($arg)*), $body)
+        builtin_inner!($alias, $name, true, $machine, $tce_active, ($($arg)*), $body)
     };
 }
 
 macro_rules! builtin_inner {
-    ($alias:ident, $name:ident, $is_macro:literal, $eval_during_tce:literal, $machine:ident, ($($argname:tt: $argtype:tt),*), $body:block) => {
+    ($alias:ident, $name:ident, $is_macro:literal, $machine:ident, ($($arg:tt)*), $body:block) => {
         (stringify!($alias), Builtin {
             name: stringify!($name),
             is_macro: $is_macro,
-            eval_during_tce: $eval_during_tce,
+            eval_during_tce: false,
             #[allow(unused_variables)]
-            body: |mut args, $machine| {
-                args.reverse();
-                $(builtin_argument!($alias, args, $machine, $argname: $argtype);)*
-                if !args.is_empty() {
-                    Err(Error::ExtraArguments {
-                        call_target: Value::Builtin(BUILTINS[stringify!($alias)]),
-                        arguments: args.into_iter().map(|value| value.as_ref().clone()).collect()
-                    })
-                } else {
-                    $body
-                }
+            body: |mut args, $machine, _| {
+                builtin_arguments!($alias, args, ($($arg)*));
+                $body
             }
         })
-    }
+    };
+    ($alias:ident, $name:ident, $is_macro:literal, $machine:ident, $tce_active:ident, ($($arg:tt)*), $body:block) => {
+        (stringify!($alias), Builtin {
+            name: stringify!($name),
+            is_macro: $is_macro,
+            eval_during_tce: true,
+            #[allow(unused_variables)]
+            body: |mut args, $machine, $tce_active| {
+                builtin_arguments!($alias, args, ($($arg)*));
+                $body
+            }
+        })
+    };
+}
+
+macro_rules! builtin_arguments {
+    ($alias:ident, $args:ident, ($($argname:tt: $argtype:tt),*)) => {
+        ($args).reverse();
+        $(builtin_argument!($alias, $args, $argname: $argtype);)*
+        if !$args.is_empty() {
+            return Err(Error::ExtraArguments {
+                call_target: Value::Builtin(crate::builtins::BUILTINS[stringify!($alias)]),
+                arguments: $args.into_iter().map(|value| value.as_ref().clone()).collect()
+            })
+        }
+    };
 }
 
 macro_rules! builtin_argument {
-    ($alias:ident, $args:ident, $machine:ident, $name:ident: any) => {
+    ($alias:ident, $args:ident, $name:ident: any) => {
         #[allow(unused_mut)]
         let mut $name = $args.pop().ok_or_else(|| Error::MissingArgument {
             name: stringify!($name).to_string(),
-            call_target: Value::Builtin(BUILTINS[stringify!($alias)]),
+            call_target: Value::Builtin(crate::builtins::BUILTINS[stringify!($alias)]),
             expected_type: Some("any".to_string()),
         })?;
     };
-    ($alias:ident, $args:ident, $machine:ident, $name:ident: $argtype:path) => {
+    ($alias:ident, $args:ident, $name:ident: $argtype:path) => {
         #[allow(unused_imports)]
         use Value::*;
         let arg = $args.pop();
@@ -80,6 +97,7 @@ macro_rules! builtin_argument {
             Some(ref arg) => match arg.as_ref() {
                 $argtype(arg) => Ok(arg),
                 other => Err(Error::WrongBuiltinArgumentType {
+                    alias: stringify!($alias),
                     name: stringify!($name),
                     expected_type: stringify!($argtype),
                     value: other.clone(),
@@ -87,12 +105,12 @@ macro_rules! builtin_argument {
             },
             None => Err(Error::MissingArgument {
                 name: stringify!($name).to_owned(),
-                call_target: Value::Builtin(BUILTINS[stringify!($alias)]),
+                call_target: Value::Builtin(crate::builtins::BUILTINS[stringify!($alias)]),
                 expected_type: Some(stringify!($argtype).to_owned()),
             }),
         }?;
     };
-    ($alias:ident, $args:ident, $machine:ident, ($raw:ident -> $name:ident): $argtype:path) => {
+    ($alias:ident, $args:ident, ($raw:ident -> $name:ident): $argtype:path) => {
         #[allow(unused_imports)]
         use Value::*;
         let arg = $args.pop();
@@ -101,6 +119,7 @@ macro_rules! builtin_argument {
             Some(ref arg) => match arg.as_ref() {
                 $argtype(value) => Ok((arg.clone(), value)),
                 other => Err(Error::WrongBuiltinArgumentType {
+                    alias: stringify!($alias),
                     name: stringify!($name),
                     expected_type: stringify!($argtype),
                     value: other.clone(),
@@ -108,7 +127,7 @@ macro_rules! builtin_argument {
             },
             None => Err(Error::MissingArgument {
                 name: stringify!($name).to_owned(),
-                call_target: Value::Builtin(BUILTINS[stringify!($alias)]),
+                call_target: Value::Builtin(crate::builtins::BUILTINS[stringify!($alias)]),
                 expected_type: Some(stringify!($argtype).to_owned()),
             }),
         }?;
@@ -119,17 +138,19 @@ pub static BUILTINS: LazyLock<HashMap<&'static str, Builtin>> = LazyLock::new(||
     HashMap::from([
         builtin! {
             fn cons(_machine, value: any, list: List) as c {
-                Ok(Rc::new(Value::List(list.clone().cons(value))))
+                let mut consed_list = vec![value];
+                consed_list.extend(list.clone());
+                Ok(Rc::new(Value::List(consed_list)))
             }
         },
         builtin! {
             fn head(_machine, value: List) as h {
-                Ok(value.head().cloned().unwrap_or(Value::nil()))
+                Ok(value.first().cloned().unwrap_or(Value::nil()))
             }
         },
         builtin! {
             fn tail(_machine, value: List) as t {
-                Ok(value.tail().map(|value| Rc::new(Value::List(value.into()))).unwrap_or(Value::nil()))
+                Ok(value.split_first().map(|(_, value)| Rc::new(Value::List(value.to_vec()))).unwrap_or(Value::nil()))
             }
         },
         builtin! {
@@ -153,7 +174,7 @@ pub static BUILTINS: LazyLock<HashMap<&'static str, Builtin>> = LazyLock::new(||
             }
         },
         builtin! {
-            tce fn eval(machine, value: any) as v {
+            tce fn eval(machine, _tce_active, value: any) as v {
                 machine.eval(value)
             }
         },
@@ -193,11 +214,16 @@ pub static BUILTINS: LazyLock<HashMap<&'static str, Builtin>> = LazyLock::new(||
             }
         },
         builtin! {
-            tce macro if(machine, condition: any, if_truthy: any, if_falsy: any) as i {
-                if machine.eval(condition)?.truthy() {
-                    machine.eval(if_truthy)
+            tce macro if(machine, tce_active, condition: any, if_truthy: any, if_falsy: any) as i {
+                let selected_branch = if machine.eval(condition)?.truthy() {
+                    if_truthy
                 } else {
-                    machine.eval(if_falsy)
+                    if_falsy
+                };
+                if tce_active {
+                    Ok(selected_branch)
+                } else {
+                    machine.eval(selected_branch)
                 }
             }
         },
