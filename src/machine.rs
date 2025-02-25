@@ -383,7 +383,7 @@ mod test {
         let nadic_function = parse_value!("((args) args)");
         let variadic_function = parse_value!("(args args)");
         let nadic_macro = parse_value!("(() (args) args)");
-        let variadic_macro = parse_value!("() args args");
+        let variadic_macro = parse_value!("(() args args)");
         let args = parse_list!("((q 42))");
 
         assert_eq!(

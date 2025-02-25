@@ -48,6 +48,9 @@ fn repl() -> Result<(), Box<dyn Error>> {
     loop {
         match rl.readline("tl> ") {
             Ok(line) => {
+                if line.is_empty() {
+                    continue;
+                }
                 match parse_expression(&line) {
                     Ok(expression) => {
                         match machine.eval(Rc::new(expression.into())) {
