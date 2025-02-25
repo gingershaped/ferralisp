@@ -31,7 +31,7 @@ pub enum Error {
         call_target: Value,
         expected_type: Option<String>,
     },
-    #[error("extra arguments [{arguments}] supplied while calling {call_target}", arguments = .arguments.into_iter().join(", "))]
+    #[error("extra arguments [{arguments}] supplied while calling {call_target}", arguments = .arguments.iter().join(", "))]
     ExtraArguments {
         call_target: Value,
         arguments: Vec<Value>,
@@ -45,7 +45,7 @@ pub enum Error {
     },
     #[error("builtin error: {0}")]
     BuiltinError(String),
-    #[error("unable to find module named {module}, tried loaders: {loaders}", loaders = .loaders.into_iter().join(", "))]
+    #[error("unable to find module named {module}, tried loaders: {loaders}", loaders = .loaders.iter().join(", "))]
     ModuleNotFound {
         module: String,
         loaders: Vec<&'static str>,
@@ -73,7 +73,7 @@ impl PartialEq for ModuleLoadError {
 pub type ValueResult = Result<Rc<Value>, Error>;
 
 pub trait World {
-    fn disp(&self, value: &Value) -> ();
+    fn disp(&self, value: &Value);
 }
 
 impl Debug for dyn World {
@@ -91,7 +91,7 @@ pub enum LoadResult {
 
 pub trait Loader {
     fn name(&self) -> &'static str;
-    fn load(&self, path: &str, loads: &Vec<ModuleLoad>) -> LoadResult;
+    fn load(&self, path: &str, loads: &[ModuleLoad]) -> LoadResult;
 }
 
 impl Debug for dyn Loader {
@@ -198,7 +198,7 @@ impl Machine {
                 loaders: self.loaders.iter().map(|loader| loader.name()).collect(),
             });
         }
-        return Ok(Value::nil());
+        Ok(Value::nil())
     }
 
     fn evaluate_args(&mut self, arguments: Vec<Rc<Value>>) -> Result<Vec<Rc<Value>>, Error> {
@@ -235,7 +235,7 @@ impl Machine {
             Value::Name(name) => ArgumentNames::Variadic(name.to_owned()),
             Value::List(names) => ArgumentNames::NAdic(
                 names
-                    .into_iter()
+                    .iter()
                     .map(|value| {
                         if let Value::Name(name) = value.as_ref() {
                             Ok(name.to_owned())
@@ -255,7 +255,7 @@ impl Machine {
                 })
             }
         };
-        let mut arguments: Vec<_> = arguments.into_iter().cloned().collect();
+        let mut arguments: Vec<_> = arguments.to_vec();
         if !is_macro {
             arguments = self.evaluate_args(arguments)?;
         }
@@ -317,7 +317,7 @@ impl Machine {
                     scope.insert(
                         name.to_string(),
                         Rc::new(Value::List(
-                            (&call_info.arguments).iter().cloned().collect(),
+                            call_info.arguments.to_vec(),
                         )),
                     );
                 }
@@ -363,7 +363,7 @@ impl Machine {
                     None => Ok(value),
                     // otherwise it's a function call
                     Some((target, args)) => {
-                        let mut args: Vec<Rc<Value>> = args.iter().cloned().collect();
+                        let mut args: Vec<Rc<Value>> = args.to_vec();
                         trace!("attempting to invoke {} with raw_args {:?}", target, &args);
                         let target = self.eval(target.clone())?;
                         match target.as_ref() {

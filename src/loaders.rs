@@ -16,9 +16,9 @@ impl Loader for StdlibLoader {
         "stdlib"
     }
 
-    fn load(&self, path: &str, loads: &Vec<ModuleLoad>) -> LoadResult {
+    fn load(&self, path: &str, _loads: &[ModuleLoad]) -> LoadResult {
         if path == "library" {
-            return self.load("lib/library", loads);
+            return self.load("lib/library", _loads);
         }
         if let Some((_, path)) = path.split_once("lib/") {
             if let Some(file) = STDLIB.get_file(path.to_owned() + ".tl") {
@@ -35,7 +35,7 @@ impl Loader for StdlibLoader {
                 };
             }
         }
-        return LoadResult::NotFound;
+        LoadResult::NotFound
     }
 }
 
@@ -54,7 +54,7 @@ impl Loader for FileLoader {
         "file"
     }
 
-    fn load(&self, path: &str, loads: &Vec<ModuleLoad>) -> LoadResult {
+    fn load(&self, path: &str, loads: &[ModuleLoad]) -> LoadResult {
         let mut target = self.base_dir.clone();
         for load in loads {
             if load.loader == self.name() {

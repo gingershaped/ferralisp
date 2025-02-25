@@ -69,6 +69,12 @@ pub struct GlobalScope {
     locals: Locals,
 }
 
+impl Default for GlobalScope {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl GlobalScope {
     pub fn new() -> GlobalScope {
         GlobalScope {

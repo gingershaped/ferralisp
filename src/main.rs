@@ -39,7 +39,7 @@ impl Source {
 
 struct ConsoleWorld;
 impl World for ConsoleWorld {
-    fn disp(&self, value: &Value) -> () {
+    fn disp(&self, value: &Value) {
         println!("{}", value);
     }
 }

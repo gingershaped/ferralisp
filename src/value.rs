@@ -3,9 +3,9 @@
 //! - Builtin: a built-in function or macro
 //! - Integer: a signed 64-bit integer
 //! - Name: a name
-//! values are usually wrapped in an Rc, but may be cloned for situations like displaying error messages.
-//! all values are truthy for the purposes of builtins like `i`,
-//! except for the number zero and the empty list (nil).
+//!   values are usually wrapped in an Rc, but may be cloned for situations like displaying error messages.
+//!   all values are truthy for the purposes of builtins like `i`,
+//!   except for the number zero and the empty list (nil).
 
 use std::{
     fmt::{Debug, Display},
@@ -28,7 +28,7 @@ impl Value {
     pub fn truthy(&self) -> bool {
         match self {
             Value::Integer(0) => false,
-            Value::List(list) => list.len() > 0,
+            Value::List(list) => !list.is_empty(),
             _ => true,
         }
     }
@@ -47,7 +47,7 @@ impl Debug for Value {
         match self {
             Value::List(values) => {
                 write!(f, "(")?;
-                for (index, value) in values.into_iter().enumerate() {
+                for (index, value) in values.iter().enumerate() {
                     Debug::fmt(value, f)?;
                     if index != values.len() - 1 {
                         write!(f, " ")?;
@@ -115,7 +115,7 @@ impl From<&str> for Value {
 
 impl FromIterator<Value> for Value {
     fn from_iter<T: IntoIterator<Item = Value>>(iter: T) -> Self {
-        Value::List(iter.into_iter().map(|v| Rc::new(v)).collect())
+        Value::List(iter.into_iter().map(Rc::new).collect())
     }
 }
 

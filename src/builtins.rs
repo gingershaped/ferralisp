@@ -184,7 +184,7 @@ pub static BUILTINS: LazyLock<HashMap<&'static str, Builtin>> = LazyLock::new(||
         builtin! {
             fn string(_machine, codes: List) as string {
                 Ok(Rc::new(Value::Name(String::from_iter(codes
-                    .into_iter()
+                    .iter()
                     .map(|value| {
                         if let Value::Integer(value) = value.as_ref() {
                             char::from_u32(*value as u32).ok_or_else(|| Error::BuiltinError(format!("invalid character value {}", value)))
