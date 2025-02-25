@@ -45,7 +45,7 @@ macro_rules! builtin_inner {
             name: stringify!($name),
             is_macro: $is_macro,
             eval_during_tce: false,
-            #[allow(unused_variables)]
+            #[allow(unused_variables, unused_mut)]
             body: |mut args, $machine, _| {
                 builtin_arguments!($alias, args, ($($arg)*));
                 $body
@@ -67,6 +67,9 @@ macro_rules! builtin_inner {
 }
 
 macro_rules! builtin_arguments {
+    ($alias:ident, $args:ident, (*$varargs:ident)) => {
+        let $varargs = $args;
+    };
     ($alias:ident, $args:ident, ($($argname:tt: $argtype:tt),*)) => {
         ($args).reverse();
         $(builtin_argument!($alias, $args, $argname: $argtype);)*
@@ -238,6 +241,16 @@ pub static BUILTINS: LazyLock<HashMap<&'static str, Builtin>> = LazyLock::new(||
                 }
             }
         },
+        builtin! {
+            macro load(machine, path: Name) as load {
+                machine.load(path.clone())
+            }
+        },
+        builtin! {
+            macro comment(_machine, *args) as comment {
+                Ok(Value::nil())
+            }
+        }
     ])
 });
 
@@ -247,26 +260,7 @@ mod test {
 
     use test_log::test;
 
-    use crate::{machine::Machine, parser::parse_expression, value::Value};
-
-    macro_rules! assert_eval {
-        ($input:expr, $output:expr) => {
-            let mut machine = Machine::new();
-
-            assert_eq!(
-                machine.eval(Rc::new(
-                    parse_expression($input)
-                        .expect("failed to parse input")
-                        .into()
-                )),
-                Ok(Rc::new(
-                    parse_expression($output)
-                        .expect("failed to parse output")
-                        .into()
-                ))
-            )
-        };
-    }
+    use crate::{assert_eval, parser::parse_expression, util::dummy_machine, value::Value};
 
     #[test]
     fn cons() {
@@ -344,7 +338,7 @@ mod test {
 
     #[test]
     fn def() {
-        let mut machine = Machine::new();
+        let mut machine = dummy_machine();
 
         assert_eq!(
             machine.eval(Rc::new(parse_expression("(d the_answer 42)").unwrap().into())),

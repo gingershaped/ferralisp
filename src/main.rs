@@ -1,7 +1,7 @@
 use std::{error::Error, fs::read_to_string, path::PathBuf, rc::Rc};
 
 use clap::{Args, Parser};
-use ferralisp::{machine::Machine, parser::parse};
+use ferralisp::{machine::{Machine, World}, parser::parse};
 
 #[derive(Debug, Parser)]
 #[command(name = "ferralisp")]
@@ -30,6 +30,13 @@ impl Source {
     }
 }
 
+struct ConsoleWorld;
+impl World for ConsoleWorld {
+    fn disp(&self, value: ferralisp::value::Value) -> () {
+        println!("{}", value);
+    }
+}
+
 fn main() -> Result<(), Box<dyn Error>> {
     let args = Cli::parse();
     let source = args.source.read();
@@ -40,7 +47,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         return Ok(());
     }
 
-    let mut machine = Machine::new();
+    let mut machine = Machine::with_default_loaders(ConsoleWorld);
     for expression in parsed {
         match machine.eval(Rc::new(expression.into())) {
             Ok(value) => println!("{}", value),

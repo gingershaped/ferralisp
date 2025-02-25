@@ -1,12 +1,16 @@
 //! the machine, or the thing that actually executes tinylisp code.
 
-use std::rc::Rc;
+use std::{
+    collections::HashSet,
+    fmt::Debug,
+    rc::Rc,
+};
 
 use itertools::{EitherOrBoth, Itertools};
 use thiserror::Error;
 use tracing::{error, instrument, trace};
 
-use crate::{scope::GlobalScope, value::Value};
+use crate::{scope::GlobalScope, stdlib::StdlibLoader, value::Value};
 
 #[derive(Error, Debug, PartialEq)]
 pub enum Error {
@@ -41,9 +45,60 @@ pub enum Error {
     },
     #[error("builtin error: {0}")]
     BuiltinError(String),
+    #[error("unable to find module named {module}, tried loaders: {loaders}", loaders = .loaders.into_iter().join(", "))]
+    ModuleNotFound {
+        module: String,
+        loaders: Vec<&'static str>,
+    },
+    #[error("{0}")]
+    ModuleLoadError(#[from] ModuleLoadError),
+    #[error("an error occured while evaluating module {module}: {source}")]
+    ModuleEvaluationError { module: String, source: Box<Error> },
+}
+
+#[derive(Error, Debug)]
+#[error("loader {loader} failed to load module {module}: {source}")]
+pub struct ModuleLoadError {
+    loader: &'static str,
+    module: String,
+    source: Box<dyn std::error::Error>,
+}
+
+impl PartialEq for ModuleLoadError {
+    fn eq(&self, other: &Self) -> bool {
+        self.loader == other.loader && self.module == other.module
+    }
 }
 
 pub type ValueResult = Result<Rc<Value>, Error>;
+
+pub trait World {
+    fn disp(&self, value: Value) -> ();
+}
+
+impl Debug for dyn World {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "<world {:p}>", self)
+    }
+}
+
+#[derive(Debug)]
+pub enum LoadResult {
+    NotFound,
+    Ok { values: Vec<Value>, cache: bool },
+    Err(Error),
+}
+
+pub trait Loader {
+    fn name(&self) -> &'static str;
+    fn load(&self, path: &str) -> LoadResult;
+}
+
+impl Debug for dyn Loader {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "<loader {}>", self.name())
+    }
+}
 
 #[derive(Debug, PartialEq)]
 enum ArgumentNames {
@@ -61,13 +116,59 @@ struct CallInformation {
 #[derive(Debug)]
 pub struct Machine {
     pub scope: GlobalScope,
+    pub(crate) world: Box<dyn World>,
+    loaders: Vec<Box<dyn Loader>>,
+    loaded_modules: HashSet<String>,
 }
 
 impl Machine {
-    pub fn new() -> Self {
+    pub fn new(world: impl World + 'static, loaders: Vec<Box<dyn Loader>>) -> Self {
         Machine {
             scope: GlobalScope::new(),
+            world: Box::new(world),
+            loaders,
+            loaded_modules: HashSet::new(),
         }
+    }
+
+    pub fn with_default_loaders(world: impl World + 'static) -> Self {
+        Self::new(world, vec![Box::new(StdlibLoader)])
+    }
+
+    pub fn load(&mut self, path: String) -> ValueResult {
+        if !self.loaded_modules.contains(&path) {
+            for loader in &self.loaders {
+                match (*loader).load(&path) {
+                    LoadResult::NotFound => (),
+                    LoadResult::Ok { values, cache } => {
+                        for value in values {
+                            self.eval(value.into()).map_err(|source| {
+                                Error::ModuleEvaluationError {
+                                    module: path.clone(),
+                                    source: Box::new(source),
+                                }
+                            })?;
+                        }
+                        if cache {
+                            self.loaded_modules.insert(path);
+                        }
+                        return Ok(Value::nil());
+                    }
+                    LoadResult::Err(source) => {
+                        return Err(Error::ModuleLoadError(ModuleLoadError {
+                            loader: loader.name(),
+                            module: path,
+                            source: Box::new(source),
+                        }));
+                    }
+                }
+            }
+            return Err(Error::ModuleNotFound {
+                module: path,
+                loaders: self.loaders.iter().map(|loader| loader.name()).collect(),
+            });
+        }
+        return Ok(Value::nil());
     }
 
     fn evaluate_args(&mut self, arguments: Vec<Rc<Value>>) -> Result<Vec<Rc<Value>>, Error> {
@@ -219,40 +320,6 @@ impl Machine {
             }
 
             return self.eval(body);
-
-            // let mut call_target = None;
-            // let mut function_body = call_info.body.clone();
-            // trace!("initial function body: {}", &function_body);
-            // while let Value::List(function_inner) = function_body.as_ref() {
-            //     if let Some((head, raw_args)) = function_inner.split_first() {
-            //         call_target = Some(self.eval(head.clone())?);
-            //         trace!("new call target: {}", call_target.as_ref().unwrap());
-            //         // SAFETY: we just set it to Some two lines earlier
-            //         if let Value::Builtin(builtin) = unsafe { call_target.as_ref().unwrap_unchecked() }.as_ref() {
-            //             if builtin.eval_during_tce {
-            //                 trace!("evaluating builtin {} in TCE mode", &builtin.name);
-            //                 function_body = (builtin.body)(raw_args.to_vec(), self, true)?;
-            //                 trace!("builtin returned new function body: {}", &function_body);
-            //                 continue;
-            //             }
-            //         }
-            //     }
-            //     break;
-            // }
-
-            // // is function_body a user-defined function or macro?
-            // if let Some(Value::List(call_target_inner)) = call_target.as_deref() {
-            //     if call_target_inner.len() != 0 {
-            //         // if so, update call_info and go back to the start
-            //         trace!("TCE recursing to new function: {}", &call_target.as_ref().unwrap());
-            //         call_info = self.call_information(call_target_inner, raw_args)?;
-            //         scope.clear();
-            //         continue;
-            //     }
-            // }
-            // // if not, we're done recursing, so eval and return it
-            // trace!("final return value: {}", &function_body);
-            // return self.eval(function_body);
         }
     }
 
@@ -304,31 +371,20 @@ mod test {
 
     use crate::{
         machine::{ArgumentNames, CallInformation},
-        parser::parse_expression,
+        parse_list, parse_value,
+        util::dummy_machine,
         value::Value,
     };
 
-    use super::Machine;
-
-    macro_rules! list {
-        ($code:literal) => {
-            if let Value::List(list) = parse_expression($code).unwrap().into() {
-                list
-            } else {
-                unreachable!()
-            }
-        };
-    }
-
     #[test]
     fn call_info() {
-        let mut machine = Machine::new();
+        let mut machine = dummy_machine();
 
-        let nadic_function = Rc::new(parse_expression("((args) args)").unwrap().into());
-        let variadic_function = Rc::new(parse_expression("(args args)").unwrap().into());
-        let nadic_macro = Rc::new(parse_expression("(() (args) args)").unwrap().into());
-        let variadic_macro = Rc::new(parse_expression("(() args args)").unwrap().into());
-        let args = list!("((q 42))");
+        let nadic_function = parse_value!("((args) args)");
+        let variadic_function = parse_value!("(args args)");
+        let nadic_macro = parse_value!("(() (args) args)");
+        let variadic_macro = parse_value!("() args args");
+        let args = parse_list!("((q 42))");
 
         assert_eq!(
             machine.call_information(&nadic_function, &args),

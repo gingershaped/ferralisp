@@ -1,5 +1,5 @@
 use std::rc::Rc;
-use ferralisp::{machine::Machine, parser::parse, value::Value};
+use ferralisp::{parser::parse, value::Value, util::dummy_machine};
 use itertools::{EitherOrBoth, Itertools};
 
 
@@ -21,7 +21,7 @@ macro_rules! tl_test {
             .collect::<Vec<Rc<Value>>>();
             let outputs = include_str!(concat!("reference/", stringify!($file), ".tl.out")).lines();
 
-            let mut machine = Machine::new();
+            let mut machine = dummy_machine();
 
             for item in inputs.into_iter().zip_longest(outputs) {
                 let EitherOrBoth::Both(input, output_str) = item else {
