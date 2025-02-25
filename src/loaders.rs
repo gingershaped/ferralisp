@@ -65,20 +65,12 @@ impl Loader for FileLoader {
         }
         target.push(path);
         match read_to_string(target) {
-            Ok(contents) => {
-                match parse(&contents) {
-                    Ok(contents) => {
-                        LoadResult::Ok {
-                            values: contents.into_iter()
-                                .map(|e| e.into())
-                                .collect(),
-                            cache: true,
-                        }
-                    },
-                    Err(error) => {
-                        LoadResult::Err(Box::new(error))
-                    },
-                }
+            Ok(contents) => match parse(&contents) {
+                Ok(contents) => LoadResult::Ok {
+                    values: contents.into_iter().map(|e| e.into()).collect(),
+                    cache: true,
+                },
+                Err(error) => LoadResult::Err(Box::new(error)),
             },
             Err(error) => {
                 if matches!(error.kind(), ErrorKind::NotFound) {
@@ -86,7 +78,7 @@ impl Loader for FileLoader {
                 } else {
                     LoadResult::Err(Box::new(error))
                 }
-            },
+            }
         }
     }
 }

@@ -7,7 +7,10 @@
 //! all values are truthy for the purposes of builtins like `i`,
 //! except for the number zero and the empty list (nil).
 
-use std::{fmt::{Debug, Display}, rc::Rc};
+use std::{
+    fmt::{Debug, Display},
+    rc::Rc,
+};
 
 use strum_macros::IntoStaticStr;
 
@@ -52,7 +55,7 @@ impl Debug for Value {
                 }
                 write!(f, ")")?;
                 Ok(())
-            },
+            }
             Value::Builtin(builtin) => {
                 write!(
                     f,

@@ -1,7 +1,6 @@
-use std::rc::Rc;
-use ferralisp::{parser::parse, value::Value, util::dummy_machine};
+use ferralisp::{parser::parse, util::dummy_machine, value::Value};
 use itertools::{EitherOrBoth, Itertools};
-
+use std::rc::Rc;
 
 macro_rules! tl_test {
     ($file:ident) => {

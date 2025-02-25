@@ -1,6 +1,11 @@
 //! HashMap wrappers for storing a machine's global and local scopes.
 
-use std::{cell::RefCell, collections::HashMap, fmt::{Debug, Display}, rc::Rc};
+use std::{
+    cell::RefCell,
+    collections::HashMap,
+    fmt::{Debug, Display},
+    rc::Rc,
+};
 
 use tracing::trace;
 
@@ -116,7 +121,7 @@ impl GlobalScope {
 impl Debug for GlobalScope {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         writeln!(f, "GlobalScope {{")?;
-        
+
         writeln!(f, "  globals:")?;
         for (key, value) in self.globals.iter() {
             writeln!(f, "    {} = {}", key, value)?;

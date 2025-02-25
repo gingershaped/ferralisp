@@ -2,7 +2,11 @@ use std::{error::Error, fs::read_to_string, path::PathBuf, rc::Rc};
 
 use anstream::println;
 use clap::{Args, Parser};
-use ferralisp::{machine::{Machine, World}, parser::{parse, parse_expression}, value::Value};
+use ferralisp::{
+    machine::{Machine, World},
+    parser::{parse, parse_expression},
+    value::Value,
+};
 use owo_colors::OwoColorize;
 use rustyline::{error::ReadlineError, DefaultEditor};
 
@@ -52,25 +56,23 @@ fn repl() -> Result<(), Box<dyn Error>> {
                     continue;
                 }
                 match parse_expression(&line) {
-                    Ok(expression) => {
-                        match machine.eval(Rc::new(expression.into())) {
-                            Ok(value) => {
-                                println!("{}", value);
-                            },
-                            Err(error) => {
-                                println!("{}: {}", "error!!".bold().red(), error);
-                            }
+                    Ok(expression) => match machine.eval(Rc::new(expression.into())) {
+                        Ok(value) => {
+                            println!("{}", value);
+                        }
+                        Err(error) => {
+                            println!("{}: {}", "error!!".bold().red(), error);
                         }
                     },
                     Err(error) => {
                         println!("{}: {}", "parse error!!".bold().red(), error);
-                    },
+                    }
                 }
-            },
+            }
             Err(ReadlineError::Interrupted) => (),
             Err(ReadlineError::Eof) => {
                 break;
-            },
+            }
             Err(_) => (),
         }
     }
@@ -79,7 +81,7 @@ fn repl() -> Result<(), Box<dyn Error>> {
 
 fn main() -> Result<(), Box<dyn Error>> {
     let args = Cli::parse();
-    
+
     match args.source {
         Some(source) => {
             let source = source.read();
@@ -97,12 +99,12 @@ fn main() -> Result<(), Box<dyn Error>> {
                     Err(err) => {
                         println!("error!! {}", err);
                         break;
-                    },
+                    }
                 }
             }
 
             Ok(())
-        },
+        }
         None => repl(),
     }
 }

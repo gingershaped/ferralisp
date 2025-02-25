@@ -256,7 +256,7 @@ pub static BUILTINS: LazyLock<HashMap<&'static str, Builtin>> = LazyLock::new(||
             macro comment(_machine, *args) as comment {
                 Ok(Value::nil())
             }
-        }
+        },
     ])
 });
 
@@ -347,12 +347,11 @@ mod test {
         let mut machine = dummy_machine();
 
         assert_eq!(
-            machine.eval(Rc::new(parse_expression("(d the_answer 42)").unwrap().into())),
+            machine.eval(Rc::new(
+                parse_expression("(d the_answer 42)").unwrap().into()
+            )),
             Ok(Value::of("the_answer")),
         );
-        assert_eq!(
-            machine.eval(Value::of("the_answer")),
-            Ok(Value::of(42)),
-        );
+        assert_eq!(machine.eval(Value::of("the_answer")), Ok(Value::of(42)),);
     }
 }
