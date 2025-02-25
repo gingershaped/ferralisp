@@ -5,7 +5,7 @@ use crate::{
 
 pub struct DummyWorld;
 impl World for DummyWorld {
-    fn disp(&self, _: Value) -> () {}
+    fn disp(&self, _: &Value) -> () {}
 }
 
 pub fn dummy_machine() -> Machine {

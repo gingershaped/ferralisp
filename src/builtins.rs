@@ -212,6 +212,12 @@ pub static BUILTINS: LazyLock<HashMap<&'static str, Builtin>> = LazyLock::new(||
             }
         },
         builtin! {
+            fn disp(machine, value: any) as disp {
+                machine.world.disp(value.as_ref());
+                Ok(value)
+            }
+        },
+        builtin! {
             macro quote(_machine, thing: any) as q {
                 Ok(thing)
             }

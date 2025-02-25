@@ -2,7 +2,7 @@ use std::{error::Error, fs::read_to_string, path::PathBuf, rc::Rc};
 
 use anstream::println;
 use clap::{Args, Parser};
-use ferralisp::{machine::{Machine, World}, parser::{parse, parse_expression}};
+use ferralisp::{machine::{Machine, World}, parser::{parse, parse_expression}, value::Value};
 use owo_colors::OwoColorize;
 use rustyline::{error::ReadlineError, DefaultEditor};
 
@@ -35,7 +35,7 @@ impl Source {
 
 struct ConsoleWorld;
 impl World for ConsoleWorld {
-    fn disp(&self, value: ferralisp::value::Value) -> () {
+    fn disp(&self, value: &Value) -> () {
         println!("{}", value);
     }
 }

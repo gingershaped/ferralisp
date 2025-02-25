@@ -73,7 +73,7 @@ impl PartialEq for ModuleLoadError {
 pub type ValueResult = Result<Rc<Value>, Error>;
 
 pub trait World {
-    fn disp(&self, value: Value) -> ();
+    fn disp(&self, value: &Value) -> ();
 }
 
 impl Debug for dyn World {
