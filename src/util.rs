@@ -50,7 +50,7 @@ macro_rules! assert_eval {
 
 pub fn or_fallback(string: &Option<String>) -> &str {
     match string {
-        Some(string) => &string,
+        Some(string) => string,
         None => "???",
     }
 }

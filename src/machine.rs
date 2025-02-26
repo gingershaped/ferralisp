@@ -179,7 +179,7 @@ impl Machine {
     pub fn load(&mut self, path: String) -> ValueResult {
         if !self.loaded_modules.contains(&path) {
             for loader in &self.loaders {
-                match (*loader).load(&path, &self, &self.module_origins) {
+                match (*loader).load(&path, self, &self.module_origins) {
                     LoadResult::NotFound => (),
                     LoadResult::Ok { values, cache } => {
                         self.module_origins.push(ModuleLoad {
@@ -187,7 +187,7 @@ impl Machine {
                             path,
                         });
                         for value in values {
-                            self.eval(value.into()).map_err(|source| {
+                            self.eval(value).map_err(|source| {
                                 let path = self
                                     .module_origins
                                     .pop()
@@ -328,10 +328,7 @@ impl Machine {
                                     call_target: call_target.clone(),
                                     arguments: call_info
                                         .arguments
-                                        .split_off(index)
-                                        .iter()
-                                        .map(|v| v.clone())
-                                        .collect(),
+                                        .split_off(index).to_vec(),
                                 });
                             }
                         }
@@ -391,7 +388,7 @@ impl Machine {
                         trace!("attempting to invoke {} with raw_args {:?}", target, &args);
                         let target = self.eval(target.clone())?;
                         match target {
-                            Value::List(_) => self.call(&target, &args),
+                            Value::List(_) => self.call(&target, args),
                             Value::Builtin(builtin) => {
                                 let mut args = args.to_vec();
                                 if !builtin.is_macro {
@@ -464,8 +461,7 @@ mod test {
                 argument_names: ArgumentNames::NAdic(vec![args_name]),
                 arguments: vec![vec![q_name.into(), 42.into()]
                     .into_iter()
-                    .collect::<Value>()
-                    .into()],
+                    .collect::<Value>()],
                 body: args_name.into(),
             })
         );
@@ -475,8 +471,7 @@ mod test {
                 argument_names: ArgumentNames::Variadic(args_name),
                 arguments: vec![vec![q_name.into(), 42.into()]
                     .into_iter()
-                    .collect::<Value>()
-                    .into()],
+                    .collect::<Value>()],
                 body: args_name.into(),
             })
         );
