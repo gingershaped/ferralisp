@@ -13,7 +13,7 @@ pub struct Builtin {
     pub name: &'static str,
     pub is_macro: bool,
     pub eval_during_tce: bool,
-    pub body: fn(Vec<Rc<Value>>, &mut Machine, bool) -> ValueResult,
+    pub body: fn(&[Value], &mut Machine, bool) -> ValueResult,
 }
 
 macro_rules! builtin {
@@ -58,7 +58,7 @@ macro_rules! builtin_inner {
             is_macro: $is_macro,
             eval_during_tce: true,
             #[allow(unused_variables)]
-            body: |mut args, $machine, $tce_active| {
+            body: |args, $machine, $tce_active| {
                 builtin_arguments!($alias, args, ($($arg)*));
                 $body
             }
@@ -71,34 +71,40 @@ macro_rules! builtin_arguments {
         let $varargs = $args;
     };
     ($alias:ident, $args:ident, ($($argname:tt: $argtype:tt),*)) => {
-        ($args).reverse();
-        $(builtin_argument!($alias, $args, $argname: $argtype);)*
-        if !$args.is_empty() {
+        let mut arg_index = 0;
+        $(
+            builtin_argument!($alias, $args, arg_index, $argname: $argtype);
+            #[allow(unused_assignments)]
+            { arg_index += 1; }
+        )*
+        if arg_index != $args.len() {
             return Err(Error::ExtraArguments {
                 call_target: Value::Builtin(crate::builtins::BUILTINS[stringify!($alias)]),
-                arguments: $args.into_iter().map(|value| value.as_ref().clone()).collect()
+                arguments: $args.into_iter().map(|value| value.clone()).collect()
             })
         }
     };
 }
 
 macro_rules! builtin_argument {
-    ($alias:ident, $args:ident, $name:ident: any) => {
+    ($alias:ident, $args:ident, $arg_index:ident, $name:ident: any) => {
         #[allow(unused_mut)]
-        let mut $name = $args.pop().ok_or_else(|| Error::MissingArgument {
-            name: stringify!($name).to_string(),
-            call_target: Value::Builtin(crate::builtins::BUILTINS[stringify!($alias)]),
-            expected_type: Some("any".to_string()),
-        })?;
+        let mut $name = $args
+            .get($arg_index)
+            .ok_or_else(|| Error::MissingArgument {
+                name: Some(stringify!($name).to_string()),
+                call_target: Value::Builtin(crate::builtins::BUILTINS[stringify!($alias)]),
+                expected_type: Some("any".to_string()),
+            })?;
     };
-    ($alias:ident, $args:ident, $name:ident: $argtype:path) => {
+    ($alias:ident, $args:ident, $arg_index:ident, $name:ident: $argtype:path) => {
         #[allow(unused_imports)]
         use Value::*;
-        let arg = $args.pop();
+        let arg = $args.get($arg_index);
         #[allow(unused_mut)]
         let mut $name = match arg {
-            Some(ref arg) => match arg.as_ref() {
-                $argtype(arg) => Ok(arg),
+            Some(arg) => match arg {
+                $argtype(value) => Ok(value),
                 other => Err(Error::WrongBuiltinArgumentType {
                     alias: stringify!($alias),
                     name: stringify!($name),
@@ -107,20 +113,20 @@ macro_rules! builtin_argument {
                 }),
             },
             None => Err(Error::MissingArgument {
-                name: stringify!($name).to_owned(),
+                name: Some(stringify!($name).to_owned()),
                 call_target: Value::Builtin(crate::builtins::BUILTINS[stringify!($alias)]),
                 expected_type: Some(stringify!($argtype).to_owned()),
             }),
         }?;
     };
-    ($alias:ident, $args:ident, ($raw:ident -> $name:ident): $argtype:path) => {
+    ($alias:ident, $args:ident, $arg_index:ident, ($raw:ident -> $name:ident): $argtype:path) => {
         #[allow(unused_imports)]
         use Value::*;
-        let arg = $args.pop();
+        let arg = $args.get($arg_index);
         #[allow(unused_mut)]
         let ($raw, mut $name) = match arg {
-            Some(ref arg) => match arg.as_ref() {
-                $argtype(value) => Ok((arg.clone(), value)),
+            Some(arg) => match arg {
+                $argtype(value, ..) => Ok((arg.clone(), value)),
                 other => Err(Error::WrongBuiltinArgumentType {
                     alias: stringify!($alias),
                     name: stringify!($name),
@@ -129,7 +135,7 @@ macro_rules! builtin_argument {
                 }),
             },
             None => Err(Error::MissingArgument {
-                name: stringify!($name).to_owned(),
+                name: Some(stringify!($name).to_owned()),
                 call_target: Value::Builtin(crate::builtins::BUILTINS[stringify!($alias)]),
                 expected_type: Some(stringify!($argtype).to_owned()),
             }),
@@ -141,9 +147,9 @@ pub static BUILTINS: LazyLock<HashMap<&'static str, Builtin>> = LazyLock::new(||
     HashMap::from([
         builtin! {
             fn cons(_machine, value: any, list: List) as c {
-                let mut consed_list = vec![value];
-                consed_list.extend(list.clone());
-                Ok(Rc::new(Value::List(consed_list)))
+                let mut consed_list = vec![value.clone()];
+                consed_list.extend(list.as_ref().clone());
+                Ok(Value::List(Rc::new(consed_list)))
             }
         },
         builtin! {
@@ -153,103 +159,119 @@ pub static BUILTINS: LazyLock<HashMap<&'static str, Builtin>> = LazyLock::new(||
         },
         builtin! {
             fn tail(_machine, value: List) as t {
-                Ok(value.split_first().map(|(_, value)| Rc::new(Value::List(value.to_vec()))).unwrap_or(Value::nil()))
+                Ok(value.split_first().map(|(_, value)| Value::List(Rc::new(value.to_vec()))).unwrap_or(Value::nil()))
             }
         },
         builtin! {
             fn add(_machine, a: Integer, b: Integer) as a {
-                Ok(Rc::new(Value::Integer(a + b)))
+                Ok(Value::Integer(a + b))
             }
         },
         builtin! {
             fn subtract(_machine, a: Integer, b: Integer) as s {
-                Ok(Rc::new(Value::Integer(a - b)))
+                Ok(Value::Integer(a - b))
             }
         },
         builtin! {
             fn less_than(_machine, a: Integer, b: Integer) as l {
-                Ok(Rc::new(Value::Integer((a < b).into())))
+                Ok(Value::Integer((a < b).into()))
             }
         },
         builtin! {
             fn equal(_machine, a: any, b: any) as e {
-                Ok(Rc::new(Value::Integer((a == b).into())))
+                Ok(Value::Integer((a == b).into()))
             }
         },
         builtin! {
             tce fn eval(machine, _tce_active, value: any) as v {
-                machine.eval(value)
+                machine.eval(value.clone())
             }
         },
         builtin! {
-            fn string(_machine, codes: List) as string {
-                Ok(Rc::new(Value::Name(String::from_iter(codes
+            fn string(machine, codes: List) as string {
+                let name = String::from_iter(codes
                     .iter()
                     .map(|value| {
-                        if let Value::Integer(value) = value.as_ref() {
+                        if let Value::Integer(value) = value {
                             char::from_u32(*value as u32).ok_or_else(|| Error::BuiltinError(format!("invalid character value {}", value)))
                         } else {
                             Err(Error::BuiltinError(format!("non-integer value {} supplied", value)))
                         }
                     })
                     .collect::<Result<Vec<_>, _>>()?
-                ))))
+                );
+                Ok(machine.create_name(&name))
             }
         },
         builtin! {
             fn chars(_machine, name: Name) as chars {
-                Ok(Rc::new(Value::List(name.chars().map(|char| Rc::new(Value::Integer(char as i64))).collect())))
+                let interner = name.1.upgrade().expect("unbound name passed to (chars)");
+                let interner = interner.borrow();
+                let name = interner.resolve(&name.0);
+                Ok(Value::List(Rc::new(name.chars().map(|char| Value::Integer(char as i64)).collect())))
             }
         },
         builtin! {
-            fn type(_machine, value: any) as type {
-                Ok(Rc::new(Value::Name(match value.as_ref() {
+            fn type(machine, value: any) as type {
+                Ok(machine.create_name(match value {
                     Value::List(_) => "List",
                     Value::Builtin(_) => "Builtin",
                     Value::Integer(_) => "Integer",
                     Value::Name(_) => "Name",
-                }.to_string())))
+                }))
             }
         },
         builtin! {
             fn disp(machine, value: any) as disp {
-                machine.world.disp(value.as_ref());
-                Ok(value)
+                machine.world.disp(value);
+                Ok(value.clone())
             }
         },
         builtin! {
             macro quote(_machine, thing: any) as q {
-                Ok(thing)
+                Ok(thing.clone())
             }
         },
         builtin! {
             tce macro if(machine, tce_active, condition: any, if_truthy: any, if_falsy: any) as i {
-                let selected_branch = if machine.eval(condition)?.truthy() {
+                let selected_branch = if machine.eval(condition.clone())?.truthy() {
                     if_truthy
                 } else {
                     if_falsy
                 };
                 if tce_active {
-                    Ok(selected_branch)
+                    Ok(selected_branch.clone())
                 } else {
-                    machine.eval(selected_branch)
+                    machine.eval(selected_branch.clone())
                 }
             }
         },
         builtin! {
-            macro def(machine, (name_raw -> name): Name, value: any) as d {
-                if machine.scope.global_lookup(name).is_none() {
-                    let value = machine.eval(value)?;
-                    machine.scope.insert(name.to_string(), value);
-                    Ok(name_raw)
-                } else {
-                    Err(Error::DefinedName(name.to_string(), name_raw.as_ref().clone()))
+            macro def(machine, (name_raw -> name): Name, new_value: any) as d {
+                let interner = name.1.upgrade().expect("unbound name passed to (d)");
+                let name = name.0;
+                match machine.scope.global_lookup(&name) {
+                    None => {
+                        let new_value = machine.eval(new_value.clone())?;
+                        machine.scope.insert(name, new_value);
+                        Ok(name_raw)
+                    }
+                    Some(current_value) => {
+                        Err(Error::DefinedName {
+                            name: interner.borrow().try_resolve(&name).map(|v| v.to_owned()),
+                            current_value: current_value.clone(),
+                            new_value: new_value.clone()
+                        })
+                    }
                 }
             }
         },
         builtin! {
             macro load(machine, path: Name) as load {
-                machine.load(path.clone())
+                let interner = path.1.upgrade().expect("unbound name passed to (chars)");
+                let interner = interner.borrow();
+                let path = interner.resolve(&path.0);
+                machine.load(path.to_owned())
             }
         },
         builtin! {
@@ -262,11 +284,9 @@ pub static BUILTINS: LazyLock<HashMap<&'static str, Builtin>> = LazyLock::new(||
 
 #[cfg(test)]
 mod test {
-    use std::rc::Rc;
-
     use test_log::test;
 
-    use crate::{assert_eval, parser::parse_expression, util::dummy_machine, value::Value};
+    use crate::{assert_eval, parse_value, util::dummy_machine};
 
     #[test]
     fn cons() {
@@ -345,13 +365,12 @@ mod test {
     #[test]
     fn def() {
         let mut machine = dummy_machine();
+        let parsed = parse_value!(machine, "(d the_answer 42)");
 
+        assert_eq!(machine.eval(parsed), Ok(machine.create_name("the_answer")),);
         assert_eq!(
-            machine.eval(Rc::new(
-                parse_expression("(d the_answer 42)").unwrap().into()
-            )),
-            Ok(Value::of("the_answer")),
+            machine.eval(machine.create_name("the_answer")),
+            Ok(42.into())
         );
-        assert_eq!(machine.eval(Value::of("the_answer")), Ok(Value::of(42)),);
     }
 }

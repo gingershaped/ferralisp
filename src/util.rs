@@ -14,9 +14,8 @@ pub fn dummy_machine() -> Machine {
 
 #[macro_export]
 macro_rules! parse_value {
-    ($value:expr) => {
-        Rc::new(
-            $crate::parser::parse_expression($value)
+    ($machine:ident, $value:expr) => {
+        $machine.hydrate($crate::parser::parse_expression($value)
                 .expect("failed to parse value literal")
                 .into(),
         )
@@ -25,9 +24,9 @@ macro_rules! parse_value {
 
 #[macro_export]
 macro_rules! parse_list {
-    ($code:expr) => {
+    ($machine:ident, $code:expr) => {
         if let $crate::value::Value::List(list) =
-            $crate::parser::parse_expression($code).unwrap().into()
+            $machine.hydrate($crate::parser::parse_expression($code).unwrap())
         {
             list
         } else {
@@ -40,10 +39,18 @@ macro_rules! parse_list {
 macro_rules! assert_eval {
     ($input:expr, $output:expr) => {
         let mut machine = $crate::util::dummy_machine();
-
+        let parsed = $crate::parse_value!(machine, $input);
+        
         assert_eq!(
-            machine.eval($crate::parse_value!($input)),
-            Ok($crate::parse_value!($output)),
+            machine.eval(parsed),
+            Ok($crate::parse_value!(machine, $output)),
         )
     };
+}
+
+pub fn or_fallback(string: &Option<String>) -> &str {
+    match string {
+        Some(string) => &string,
+        None => "???",
+    }
 }

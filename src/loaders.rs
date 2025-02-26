@@ -3,7 +3,7 @@ use std::{fs::read_to_string, io::ErrorKind, path::PathBuf};
 use include_dir::{include_dir, Dir};
 
 use crate::{
-    machine::{LoadResult, Loader, ModuleLoad},
+    machine::{LoadResult, Loader, Machine, ModuleLoad},
     parser::parse,
 };
 
@@ -16,9 +16,9 @@ impl Loader for StdlibLoader {
         "stdlib"
     }
 
-    fn load(&self, path: &str, _loads: &[ModuleLoad]) -> LoadResult {
+    fn load(&self, path: &str, machine: &Machine, _loads: &[ModuleLoad]) -> LoadResult {
         if path == "library" {
-            return self.load("lib/library", _loads);
+            return self.load("lib/library", machine, _loads);
         }
         if let Some((_, path)) = path.split_once("lib/") {
             if let Some(file) = STDLIB.get_file(path.to_owned() + ".tl") {
@@ -29,7 +29,7 @@ impl Loader for StdlibLoader {
                     values: parse(contents)
                         .expect("failed to parse file")
                         .into_iter()
-                        .map(|e| e.into())
+                        .map(|e| machine.hydrate(e))
                         .collect(),
                     cache: true,
                 };
@@ -54,7 +54,7 @@ impl Loader for FileLoader {
         "file"
     }
 
-    fn load(&self, path: &str, loads: &[ModuleLoad]) -> LoadResult {
+    fn load(&self, path: &str, machine: &Machine, loads: &[ModuleLoad]) -> LoadResult {
         let mut target = self.base_dir.clone();
         for load in loads {
             if load.loader == self.name() {
@@ -67,7 +67,7 @@ impl Loader for FileLoader {
         match read_to_string(target) {
             Ok(contents) => match parse(&contents) {
                 Ok(contents) => LoadResult::Ok {
-                    values: contents.into_iter().map(|e| e.into()).collect(),
+                    values: contents.into_iter().map(|e| machine.hydrate(e)).collect(),
                     cache: true,
                 },
                 Err(error) => LoadResult::Err(Box::new(error)),

@@ -3,25 +3,26 @@
 //! - Builtin: a built-in function or macro
 //! - Integer: a signed 64-bit integer
 //! - Name: a name
-//!   values are usually wrapped in an Rc, but may be cloned for situations like displaying error messages.
 //!   all values are truthy for the purposes of builtins like `i`,
 //!   except for the number zero and the empty list (nil).
 
 use std::{
+    cell::RefCell,
     fmt::{Debug, Display},
-    rc::Rc,
+    rc::{Rc, Weak},
 };
 
+use lasso::{Rodeo, Spur};
 use strum_macros::IntoStaticStr;
 
-use crate::{builtins::Builtin, parser::Expression};
+use crate::builtins::Builtin;
 
-#[derive(Clone, IntoStaticStr, PartialEq, Eq)]
+#[derive(Clone, IntoStaticStr)]
 pub enum Value {
-    List(Vec<Rc<Value>>),
+    List(Rc<Vec<Value>>),
     Builtin(Builtin),
     Integer(i64),
-    Name(String),
+    Name((Spur, Weak<RefCell<Rodeo>>)),
 }
 
 impl Value {
@@ -33,12 +34,20 @@ impl Value {
         }
     }
 
-    pub fn nil() -> Rc<Value> {
-        Rc::new(Value::List(vec![]))
+    pub fn nil() -> Value {
+        Value::List(Rc::new(vec![]))
     }
+}
 
-    pub fn of<T: Into<Value>>(value: T) -> Rc<Value> {
-        Rc::new(value.into())
+impl PartialEq for Value {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::List(l0), Self::List(r0)) => l0 == r0,
+            (Self::Builtin(l0), Self::Builtin(r0)) => l0 == r0,
+            (Self::Integer(l0), Self::Integer(r0)) => l0 == r0,
+            (Self::Name((l0, _)), Self::Name((r0, _))) => l0 == r0,
+            _ => false,
+        }
     }
 }
 
@@ -69,7 +78,13 @@ impl Debug for Value {
                 )
             }
             Value::Integer(value) => write!(f, "{}", value),
-            Value::Name(name) => write!(f, "{}", name),
+            Value::Name((name, interner)) => match interner.upgrade() {
+                Some(interner) => match interner.borrow().try_resolve(name) {
+                    Some(name) => write!(f, "{}", name),
+                    None => write!(f, "<invalid key {}>", name.into_inner()),
+                },
+                None => write!(f, "<unbound key {}>", name.into_inner()),
+            },
         }
     }
 }
@@ -80,47 +95,20 @@ impl Display for Value {
     }
 }
 
-impl From<Expression<'_>> for Value {
-    fn from(expr: Expression) -> Self {
-        match expr {
-            Expression::Integer(value) => Value::Integer(value),
-            Expression::Name(name) => Value::Name(name.to_owned()),
-            Expression::List(expressions) => Value::List(
-                expressions
-                    .into_iter()
-                    .map(|expr| Rc::new(expr.into()))
-                    .collect(),
-            ),
-        }
-    }
-}
-
 impl From<i64> for Value {
     fn from(value: i64) -> Self {
         Value::Integer(value)
     }
 }
 
-impl From<String> for Value {
-    fn from(value: String) -> Self {
-        Value::Name(value)
-    }
-}
-
-impl From<&str> for Value {
-    fn from(value: &str) -> Self {
-        Value::Name(value.to_string())
+impl From<Spur> for Value {
+    fn from(value: Spur) -> Self {
+        Value::Name((value, Weak::new()))
     }
 }
 
 impl FromIterator<Value> for Value {
     fn from_iter<T: IntoIterator<Item = Value>>(iter: T) -> Self {
-        Value::List(iter.into_iter().map(Rc::new).collect())
-    }
-}
-
-impl FromIterator<Rc<Value>> for Value {
-    fn from_iter<T: IntoIterator<Item = Rc<Value>>>(iter: T) -> Self {
-        Value::List(iter.into_iter().collect())
+        Value::List(Rc::new(iter.into_iter().collect()))
     }
 }

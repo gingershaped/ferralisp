@@ -1,11 +1,11 @@
 use ferralisp::{parser::parse, util::dummy_machine, value::Value};
 use itertools::{EitherOrBoth, Itertools};
-use std::rc::Rc;
 
 macro_rules! tl_test {
     ($file:ident) => {
         #[test]
         fn $file() {
+            let mut machine = dummy_machine();
             let inputs = parse(include_str!(concat!(
                 "reference/",
                 stringify!($file),
@@ -16,11 +16,10 @@ macro_rules! tl_test {
                 stringify!($file),
             ))
             .into_iter()
-            .map(|v| Value::of(v))
-            .collect::<Vec<Rc<Value>>>();
+            .map(|e| machine.hydrate(e))
+            .collect::<Vec<Value>>();
             let outputs = include_str!(concat!("reference/", stringify!($file), ".tl.out")).lines();
 
-            let mut machine = dummy_machine();
 
             for item in inputs.into_iter().zip_longest(outputs) {
                 let EitherOrBoth::Both(input, output_str) = item else {

@@ -7,15 +7,16 @@ use std::{
     rc::Rc,
 };
 
+use lasso::{Rodeo, Spur};
 use tracing::trace;
 
 use crate::{
     builtins::BUILTINS,
-    machine::{Error, ValueResult},
+    machine::{Error, Interner, ValueResult},
     value::Value,
 };
 
-type Scope = HashMap<String, Rc<Value>>;
+type Scope = HashMap<Spur, Value>;
 type Locals = Rc<RefCell<Vec<Scope>>>;
 
 pub struct LocalScope {
@@ -28,7 +29,7 @@ impl LocalScope {
         f(scopes.last_mut().expect("local scope stack underflow"))
     }
 
-    pub fn insert(&mut self, key: String, value: Rc<Value>) {
+    pub fn insert(&mut self, key: Spur, value: Value) {
         self.scope(|scope| scope.insert(key, value));
     }
 
@@ -49,7 +50,7 @@ impl Debug for LocalScope {
         writeln!(f, "LocalScope {{")?;
         self.scope(|scope| {
             for (key, value) in scope.iter() {
-                writeln!(f, "    {} = {}", key, value)?;
+                writeln!(f, "    {} = {}", key.into_inner(), value)?;
             }
             Ok(())
         })?;
@@ -67,34 +68,30 @@ impl Display for LocalScope {
 pub struct GlobalScope {
     globals: Scope,
     locals: Locals,
-}
-
-impl Default for GlobalScope {
-    fn default() -> Self {
-        Self::new()
-    }
+    interner: Rc<RefCell<Rodeo>>,
 }
 
 impl GlobalScope {
-    pub fn new() -> GlobalScope {
+    pub fn new(interner: Interner) -> GlobalScope {
         GlobalScope {
             globals: HashMap::from_iter(
                 BUILTINS
                     .iter()
-                    .map(|(k, v)| ((*k).into(), Rc::new(Value::Builtin(*v)))),
+                    .map(|(k, v)| (interner.borrow_mut().get_or_intern(k), Value::Builtin(*v))),
             ),
             locals: Rc::new(RefCell::new(vec![])),
+            interner,
         }
     }
 
-    pub fn with_globals(globals: Scope) -> GlobalScope {
-        let mut scope = GlobalScope::new();
+    pub fn with_globals(interner: Interner, globals: Scope) -> GlobalScope {
+        let mut scope = GlobalScope::new(interner);
         scope.globals.extend(globals);
         scope
     }
 
-    pub fn insert(&mut self, key: String, value: Rc<Value>) {
-        trace!("defining new global {} = {}", key, value);
+    pub fn insert(&mut self, key: Spur, value: Value) {
+        trace!("defining new global {} = {}", key.into_inner(), value);
         self.globals.insert(key, value);
     }
 
@@ -106,20 +103,20 @@ impl GlobalScope {
         }
     }
 
-    pub fn lookup(&self, name: &String) -> ValueResult {
+    pub fn lookup(&self, name: &Spur) -> ValueResult {
         self.locals
             .borrow()
             .last()
             .and_then(|scope| scope.get(name))
             .or_else(|| self.globals.get(name))
             .ok_or_else(|| {
-                trace!("failed to look up name {}! current scopes: {}", name, self);
-                Error::UndefinedName(name.to_string())
+                trace!("failed to look up name {}! current scopes: {}", name.into_inner(), self);
+                Error::UndefinedName(self.interner.borrow_mut().try_resolve(name).map(|v| v.to_owned()))
             })
             .cloned()
     }
 
-    pub fn global_lookup(&self, name: &String) -> Option<&Rc<Value>> {
+    pub fn global_lookup(&self, name: &Spur) -> Option<&Value> {
         self.globals.get(name)
     }
 }
@@ -130,7 +127,7 @@ impl Debug for GlobalScope {
 
         writeln!(f, "  globals:")?;
         for (key, value) in self.globals.iter() {
-            writeln!(f, "    {} = {}", key, value)?;
+            writeln!(f, "    {} = {}", key.into_inner(), value)?;
         }
         writeln!(f)?;
 
@@ -142,7 +139,7 @@ impl Debug for GlobalScope {
                     writeln!(f, "    <empty>")?;
                 } else {
                     for (key, value) in scope.iter() {
-                        writeln!(f, "    {} = {}", key, value)?;
+                        writeln!(f, "    {} = {}", key.into_inner(), value)?;
                     }
                 }
                 writeln!(f)?;
