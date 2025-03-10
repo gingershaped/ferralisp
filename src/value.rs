@@ -7,9 +7,7 @@
 //!   except for the number zero and the empty list (nil).
 
 use std::{
-    cell::RefCell,
-    fmt::{Debug, Display},
-    rc::{Rc, Weak},
+    cell::RefCell, fmt::{Debug, Display}, rc::{Rc, Weak}
 };
 
 use lasso::{Rodeo, Spur};
@@ -19,7 +17,7 @@ use crate::builtins::Builtin;
 
 #[derive(Clone, IntoStaticStr)]
 pub enum Value {
-    List(Rc<Vec<Value>>),
+    List(Rc<List>),
     Builtin(Builtin),
     Integer(i64),
     Name((Spur, Weak<RefCell<Rodeo>>)),
@@ -29,13 +27,13 @@ impl Value {
     pub fn truthy(&self) -> bool {
         match self {
             Value::Integer(0) => false,
-            Value::List(list) => !list.is_empty(),
+            Value::List(list) => !list.is_nil(),
             _ => true,
         }
     }
 
     pub fn nil() -> Value {
-        Value::List(Rc::new(vec![]))
+        Value::List(Rc::new(List::Nil))
     }
 }
 
@@ -55,15 +53,7 @@ impl Debug for Value {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Value::List(values) => {
-                write!(f, "(")?;
-                for (index, value) in values.iter().enumerate() {
-                    Debug::fmt(value, f)?;
-                    if index != values.len() - 1 {
-                        write!(f, " ")?;
-                    }
-                }
-                write!(f, ")")?;
-                Ok(())
+                Debug::fmt(values, f)
             }
             Value::Builtin(builtin) => {
                 write!(
@@ -110,5 +100,98 @@ impl From<Spur> for Value {
 impl FromIterator<Value> for Value {
     fn from_iter<T: IntoIterator<Item = Value>>(iter: T) -> Self {
         Value::List(Rc::new(iter.into_iter().collect()))
+    }
+}
+
+#[derive(Clone, PartialEq)]
+pub enum List {
+    Cons(Value, Rc<List>),
+    Nil,
+}
+
+impl List {
+    pub fn head(&self) -> Option<&Value> {
+        match self {
+            List::Cons(value, _) => Some(value),
+            List::Nil => None,
+        }
+    }
+
+    pub fn tail(&self) -> Option<Rc<List>> {
+        match self {
+            List::Cons(_, tail) => Some(tail.clone()),
+            List::Nil => None
+        }
+    }
+
+    pub fn divide(&self) -> Option<(&Value, Rc<List>)> {
+        match self {
+            List::Cons(head, tail) => Some((head, tail.clone())),
+            List::Nil => None,
+        }
+    }
+
+    pub fn is_nil(&self) -> bool {
+        matches!(self, List::Nil)
+    }
+
+    pub fn iter(&self) -> ListIterator {
+        self.into_iter()
+    }
+}
+
+pub struct ListIterator<'a>(Option<&'a List>);
+
+impl<'a> IntoIterator for &'a List {
+    type Item = &'a Value;
+    type IntoIter = ListIterator<'a>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        ListIterator(Some(&self))
+    }
+}
+
+impl<'a> Iterator for ListIterator<'a> {
+    type Item = &'a Value;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        match self.0.take() {
+            Some(List::Cons(value, list)) => {
+                self.0 = Some(list.as_ref());
+                Some(value)
+            },
+            _ => None,
+        }
+    }
+}
+
+impl FromIterator<Value> for List {
+    fn from_iter<T: IntoIterator<Item = Value>>(iter: T) -> Self {
+        let mut items = iter.into_iter().collect::<Vec<_>>();
+        let mut node = List::Nil;
+        items.reverse();
+
+        for item in items {
+            node = List::Cons(item, Rc::new(node))
+        }
+
+        node
+    }
+}
+
+impl Debug for List {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "(")?;
+        let mut iter = self.iter();
+        let mut item = iter.next();
+        while let Some(value) = item {
+            Debug::fmt(value, f)?;
+            item = iter.next();
+            if matches!(item, Some(_)) {
+                write!(f, " ")?;
+            }
+        }
+        write!(f, ")")?;
+        Ok(())
     }
 }

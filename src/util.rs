@@ -28,7 +28,7 @@ macro_rules! parse_list {
         if let $crate::value::Value::List(list) =
             $machine.hydrate($crate::parser::parse_expression($code).unwrap())
         {
-            list
+            std::rc::Rc::try_unwrap(list).unwrap()
         } else {
             unreachable!()
         }

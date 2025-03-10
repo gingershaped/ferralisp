@@ -8,7 +8,11 @@ use thiserror::Error;
 use tracing::{error, instrument, trace};
 
 use crate::{
-    loaders::{FileLoader, StdlibLoader}, parser::Expression, scope::GlobalScope, util::or_fallback, value::Value
+    loaders::{FileLoader, StdlibLoader},
+    parser::Expression,
+    scope::GlobalScope,
+    util::or_fallback,
+    value::{List, Value},
 };
 
 #[derive(Error, Debug, PartialEq)]
@@ -118,7 +122,7 @@ enum ArgumentNames {
 #[derive(Debug, PartialEq)]
 struct CallInformation {
     argument_names: ArgumentNames,
-    arguments: Vec<Value>,
+    arguments: List,
     body: Value,
 }
 
@@ -158,7 +162,7 @@ impl Machine {
             ],
         )
     }
-    
+
     pub fn hydrate(&self, expression: Expression) -> Value {
         match expression {
             Expression::Integer(value) => Value::Integer(value),
@@ -173,7 +177,10 @@ impl Machine {
     }
 
     pub fn create_name(&self, string: &str) -> Value {
-        Value::Name((self.interner.borrow_mut().get_or_intern(string), Rc::downgrade(&self.interner)))
+        Value::Name((
+            self.interner.borrow_mut().get_or_intern(string),
+            Rc::downgrade(&self.interner),
+        ))
     }
 
     pub fn load(&mut self, path: String) -> ValueResult {
@@ -226,10 +233,10 @@ impl Machine {
         Ok(Value::nil())
     }
 
-    fn evaluate_args(&mut self, arguments: Vec<Value>) -> Result<Vec<Value>, Error> {
+    fn evaluate_args(&mut self, arguments: &List) -> Result<List, Error> {
         arguments
             .into_iter()
-            .map(|value| self.eval(value))
+            .map(|value| self.eval(value.clone()))
             .collect::<Result<_, _>>()
     }
 
@@ -238,7 +245,7 @@ impl Machine {
     fn call_information(
         &mut self,
         target: &Value,
-        arguments: &[Value],
+        mut arguments: List,
     ) -> Result<CallInformation, Error> {
         let Value::List(target) = target else {
             return Err(Error::MalformedFunction {
@@ -246,10 +253,28 @@ impl Machine {
                 reason: "it is not a list",
             });
         };
-        let (raw_argument_names, body, is_macro) = match target.len() {
-            2 => (target[0].clone(), target[1].clone(), false),
-            3 => (target[1].clone(), target[2].clone(), true),
-            _ => {
+        let (raw_argument_names, body, is_macro) = match target.as_ref() {
+            List::Cons(first, tail) => match tail.as_ref() {
+                List::Cons(second, tail) => match tail.as_ref() {
+                    List::Cons(third, tail) => match tail.as_ref() {
+                        List::Cons(..) => {
+                            return Err(Error::MalformedFunction {
+                                value: Value::List(target.clone()),
+                                reason: "it is not exactly 2 or 3 items long",
+                            })
+                        }
+                        List::Nil => (second, third.clone(), true),
+                    },
+                    List::Nil => (first, second.clone(), false),
+                },
+                List::Nil => {
+                    return Err(Error::MalformedFunction {
+                        value: Value::List(target.clone()),
+                        reason: "it is not exactly 2 or 3 items long",
+                    })
+                }
+            },
+            List::Nil => {
                 return Err(Error::MalformedFunction {
                     value: Value::List(target.clone()),
                     reason: "it is not exactly 2 or 3 items long",
@@ -280,9 +305,8 @@ impl Machine {
                 })
             }
         };
-        let mut arguments: Vec<_> = arguments.to_vec();
         if !is_macro {
-            arguments = self.evaluate_args(arguments)?;
+            arguments = self.evaluate_args(&arguments)?;
         }
         Ok(CallInformation {
             argument_names,
@@ -298,7 +322,7 @@ impl Machine {
     /// call stack. certain builtins (those marked as `tce` in `builtins.rs`) may also be used
     /// without disabling this optimization.
     #[instrument(ret)]
-    fn call(&mut self, call_target: &Value, raw_args: &[Value]) -> ValueResult {
+    fn call(&mut self, call_target: &Value, raw_args: List) -> ValueResult {
         // all of this is mutable so TCE can update it
         let mut call_info = self.call_information(call_target, raw_args)?;
         let mut scope = self.scope.local();
@@ -318,7 +342,11 @@ impl Machine {
                             EitherOrBoth::Left(name) => {
                                 return Err(Error::MissingArgument {
                                     call_target: call_target.clone(),
-                                    name: self.interner.borrow().try_resolve(name).map(|v| v.to_owned()),
+                                    name: self
+                                        .interner
+                                        .borrow()
+                                        .try_resolve(name)
+                                        .map(|v| v.to_owned()),
                                     expected_type: None,
                                 });
                             }
@@ -328,7 +356,11 @@ impl Machine {
                                     call_target: call_target.clone(),
                                     arguments: call_info
                                         .arguments
-                                        .split_off(index).to_vec(),
+                                        .into_iter()
+                                        .cloned()
+                                        .collect::<Vec<_>>()
+                                        .split_off(index)
+                                        .to_vec(),
                                 });
                             }
                         }
@@ -336,19 +368,14 @@ impl Machine {
                 }
                 ArgumentNames::Variadic(name) => {
                     // summon a list from the ether to hold the arguments
-                    scope.insert(
-                        name,
-                        Value::List(
-                            Rc::new(call_info.arguments.to_vec()),
-                        ),
-                    );
+                    scope.insert(name, Value::List(Rc::new(call_info.arguments)));
                 }
             }
             trace!("local scope: {}", scope);
 
             let mut body = call_info.body.clone();
             while let Value::List(ref body_inner) = body {
-                if let Some((head, tail)) = body_inner.split_first() {
+                if let List::Cons(head, tail) = body_inner.as_ref() {
                     let head = self.eval(head.clone())?;
                     if let Value::Builtin(builtin) = head {
                         if builtin.eval_during_tce {
@@ -361,10 +388,10 @@ impl Machine {
             }
 
             if let Value::List(ref body) = body {
-                if let Some((head, tail)) = body.split_first() {
+                if let List::Cons(head, tail) = body.as_ref() {
                     let head = self.eval(head.clone())?;
                     if matches!(head, Value::List(_)) {
-                        call_info = self.call_information(&head, tail)?;
+                        call_info = self.call_information(&head, tail.as_ref().clone())?;
                         scope.clear();
                         continue;
                     }
@@ -380,19 +407,19 @@ impl Machine {
     pub fn eval(&mut self, value: Value) -> ValueResult {
         match value {
             Value::List(ref contents) => {
-                match contents.split_first() {
+                match contents.as_ref() {
                     // nil evaluates to itself
-                    None => Ok(value),
+                    List::Nil => Ok(value),
                     // otherwise it's a function call
-                    Some((target, args)) => {
+                    List::Cons(target, args) => {
+                        let mut args = args.as_ref().clone();
                         trace!("attempting to invoke {} with raw_args {:?}", target, &args);
                         let target = self.eval(target.clone())?;
                         match target {
                             Value::List(_) => self.call(&target, args),
                             Value::Builtin(builtin) => {
-                                let mut args = args.to_vec();
                                 if !builtin.is_macro {
-                                    args = self.evaluate_args(args)?;
+                                    args = self.evaluate_args(&args)?;
                                 }
                                 trace!(
                                     "invoking builtin {} with args {}",
@@ -440,38 +467,42 @@ mod test {
         let q_name = machine.interner.borrow_mut().get_or_intern_static("q");
 
         assert_eq!(
-            machine.call_information(&nadic_function, &args),
+            machine.call_information(&nadic_function, args.clone()),
             Ok(CallInformation {
                 argument_names: ArgumentNames::NAdic(vec![args_name]),
-                arguments: vec![42.into()],
+                arguments: vec![42.into()].into_iter().collect(),
                 body: args_name.into(),
             })
         );
         assert_eq!(
-            machine.call_information(&variadic_function, &args),
+            machine.call_information(&variadic_function, args.clone()),
             Ok(CallInformation {
                 argument_names: ArgumentNames::Variadic(args_name),
-                arguments: vec![42.into()],
+                arguments: vec![42.into()].into_iter().collect(),
                 body: args_name.into(),
             })
         );
         assert_eq!(
-            machine.call_information(&nadic_macro, &args),
+            machine.call_information(&nadic_macro, args.clone()),
             Ok(CallInformation {
                 argument_names: ArgumentNames::NAdic(vec![args_name]),
                 arguments: vec![vec![q_name.into(), 42.into()]
                     .into_iter()
-                    .collect::<Value>()],
+                    .collect::<Value>()]
+                .into_iter()
+                .collect(),
                 body: args_name.into(),
             })
         );
         assert_eq!(
-            machine.call_information(&variadic_macro, &args),
+            machine.call_information(&variadic_macro, args.clone()),
             Ok(CallInformation {
                 argument_names: ArgumentNames::Variadic(args_name),
                 arguments: vec![vec![q_name.into(), 42.into()]
                     .into_iter()
-                    .collect::<Value>()],
+                    .collect::<Value>()]
+                .into_iter()
+                .collect(),
                 body: args_name.into(),
             })
         );

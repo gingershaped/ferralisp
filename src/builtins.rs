@@ -5,7 +5,7 @@ use std::{collections::HashMap, rc::Rc, sync::LazyLock};
 
 use crate::{
     machine::{Error, Machine, ValueResult},
-    value::Value,
+    value::{List, Value},
 };
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
@@ -13,7 +13,7 @@ pub struct Builtin {
     pub name: &'static str,
     pub is_macro: bool,
     pub eval_during_tce: bool,
-    pub body: fn(&[Value], &mut Machine, bool) -> ValueResult,
+    pub body: fn(&List, &mut Machine, bool) -> ValueResult,
 }
 
 macro_rules! builtin {
@@ -46,7 +46,7 @@ macro_rules! builtin_inner {
             is_macro: $is_macro,
             eval_during_tce: false,
             #[allow(unused_variables, unused_mut)]
-            body: |mut args, $machine, _| {
+            body: |args, $machine, _| {
                 builtin_arguments!($alias, args, ($($arg)*));
                 $body
             }
@@ -71,36 +71,30 @@ macro_rules! builtin_arguments {
         let $varargs = $args;
     };
     ($alias:ident, $args:ident, ($($argname:tt: $argtype:tt),*)) => {
-        let mut arg_index = 0;
-        $(
-            builtin_argument!($alias, $args, arg_index, $argname: $argtype);
-            #[allow(unused_assignments)]
-            { arg_index += 1; }
-        )*
-        if arg_index != $args.len() {
-            return Err(Error::ExtraArguments {
-                call_target: Value::Builtin(crate::builtins::BUILTINS[stringify!($alias)]),
-                arguments: $args.into_iter().map(|value| value.clone()).collect()
-            })
-        }
+        let mut $args = $args.into_iter();
+        $(builtin_argument!($alias, $args, $argname: $argtype);)*
+        // if arg_index != $args.len() {
+        //     return Err(Error::ExtraArguments {
+        //         call_target: Value::Builtin(crate::builtins::BUILTINS[stringify!($alias)]),
+        //         arguments: $args.into_iter().map(|value| value.clone()).collect()
+        //     })
+        // }
     };
 }
 
 macro_rules! builtin_argument {
-    ($alias:ident, $args:ident, $arg_index:ident, $name:ident: any) => {
+    ($alias:ident, $args:ident, $name:ident: any) => {
         #[allow(unused_mut)]
-        let mut $name = $args
-            .get($arg_index)
-            .ok_or_else(|| Error::MissingArgument {
-                name: Some(stringify!($name).to_string()),
-                call_target: Value::Builtin(crate::builtins::BUILTINS[stringify!($alias)]),
-                expected_type: Some("any".to_string()),
-            })?;
+        let mut $name = $args.next().cloned().ok_or_else(|| Error::MissingArgument {
+            name: Some(stringify!($name).to_string()),
+            call_target: Value::Builtin(crate::builtins::BUILTINS[stringify!($alias)]),
+            expected_type: Some("any".to_string()),
+        })?;
     };
-    ($alias:ident, $args:ident, $arg_index:ident, $name:ident: $argtype:path) => {
+    ($alias:ident, $args:ident, $name:ident: $argtype:path) => {
         #[allow(unused_imports)]
         use Value::*;
-        let arg = $args.get($arg_index);
+        let arg = $args.next();
         #[allow(unused_mut)]
         let mut $name = match arg {
             Some(arg) => match arg {
@@ -119,14 +113,14 @@ macro_rules! builtin_argument {
             }),
         }?;
     };
-    ($alias:ident, $args:ident, $arg_index:ident, ($raw:ident -> $name:ident): $argtype:path) => {
+    ($alias:ident, $args:ident, ($raw:ident -> $name:ident): $argtype:path) => {
         #[allow(unused_imports)]
         use Value::*;
-        let arg = $args.get($arg_index);
+        let arg = $args.next().cloned();
         #[allow(unused_mut)]
-        let ($raw, mut $name) = match arg {
+        let ($raw, mut $name) = match &arg {
             Some(arg) => match arg {
-                $argtype(value, ..) => Ok((arg.clone(), value)),
+                $argtype(value, ..) => Ok((arg, value)),
                 other => Err(Error::WrongBuiltinArgumentType {
                     alias: stringify!($alias),
                     name: stringify!($name),
@@ -147,19 +141,17 @@ pub static BUILTINS: LazyLock<HashMap<&'static str, Builtin>> = LazyLock::new(||
     HashMap::from([
         builtin! {
             fn cons(_machine, value: any, list: List) as c {
-                let mut consed_list = vec![value.clone()];
-                consed_list.extend(list.as_ref().clone());
-                Ok(Value::List(Rc::new(consed_list)))
+                Ok(List(Rc::new(crate::value::List::Cons(value, list.clone()))))
             }
         },
         builtin! {
             fn head(_machine, value: List) as h {
-                Ok(value.first().cloned().unwrap_or(Value::nil()))
+                Ok(value.head().cloned().unwrap_or(Value::nil()))
             }
         },
         builtin! {
             fn tail(_machine, value: List) as t {
-                Ok(value.split_first().map(|(_, value)| Value::List(Rc::new(value.to_vec()))).unwrap_or(Value::nil()))
+                Ok(value.tail().map(|tail| List(tail)).unwrap_or(Value::nil()))
             }
         },
         builtin! {
@@ -223,7 +215,7 @@ pub static BUILTINS: LazyLock<HashMap<&'static str, Builtin>> = LazyLock::new(||
         },
         builtin! {
             fn disp(machine, value: any) as disp {
-                machine.world.disp(value);
+                machine.world.disp(&value);
                 Ok(value.clone())
             }
         },
@@ -254,7 +246,7 @@ pub static BUILTINS: LazyLock<HashMap<&'static str, Builtin>> = LazyLock::new(||
                     None => {
                         let new_value = machine.eval(new_value.clone())?;
                         machine.scope.insert(name, new_value);
-                        Ok(name_raw)
+                        Ok(name_raw.clone())
                     }
                     Some(current_value) => {
                         Err(Error::DefinedName {
