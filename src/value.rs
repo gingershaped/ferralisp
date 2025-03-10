@@ -7,7 +7,10 @@
 //!   except for the number zero and the empty list (nil).
 
 use std::{
-    cell::RefCell, fmt::{Debug, Display}, rc::{Rc, Weak}
+    cell::RefCell,
+    fmt::{Debug, Display},
+    mem::MaybeUninit,
+    rc::{Rc, Weak},
 };
 
 use lasso::{Rodeo, Spur};
@@ -52,9 +55,7 @@ impl PartialEq for Value {
 impl Debug for Value {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Value::List(values) => {
-                Debug::fmt(values, f)
-            }
+            Value::List(values) => Debug::fmt(values, f),
             Value::Builtin(builtin) => {
                 write!(
                     f,
@@ -104,6 +105,7 @@ impl FromIterator<Value> for Value {
 }
 
 #[derive(Clone, PartialEq)]
+#[repr(C)]
 pub enum List {
     Cons(Value, Rc<List>),
     Nil,
@@ -120,7 +122,7 @@ impl List {
     pub fn tail(&self) -> Option<Rc<List>> {
         match self {
             List::Cons(_, tail) => Some(tail.clone()),
-            List::Nil => None
+            List::Nil => None,
         }
     }
 
@@ -159,23 +161,46 @@ impl<'a> Iterator for ListIterator<'a> {
             Some(List::Cons(value, list)) => {
                 self.0 = Some(list.as_ref());
                 Some(value)
-            },
+            }
             _ => None,
         }
     }
 }
 
+#[repr(C)]
+pub enum SpicyList {
+    Cons(Value, Rc<MaybeUninit<SpicyList>>),
+    Nil,
+}
+
 impl FromIterator<Value> for List {
     fn from_iter<T: IntoIterator<Item = Value>>(iter: T) -> Self {
-        let mut items = iter.into_iter().collect::<Vec<_>>();
-        let mut node = List::Nil;
-        items.reverse();
+        let mut iter = iter.into_iter();
+        let mut root_node = if let Some(first) = iter.next() {
+            SpicyList::Cons(first, Rc::new_uninit())
+        } else {
+            return List::Nil;
+        };
+        let mut node = &mut root_node;
 
-        for item in items {
-            node = List::Cons(item, Rc::new(node))
+        for item in iter.into_iter() {
+            let SpicyList::Cons(_, ref mut ptr) = node else {
+                unreachable!()
+            };
+            let next_node = SpicyList::Cons(item, Rc::new_uninit());
+            node = Rc::get_mut(ptr).unwrap().write(next_node);
         }
 
-        node
+        let SpicyList::Cons(_, ref mut ptr) = node else {
+            unreachable!()
+        };
+        Rc::get_mut(ptr).unwrap().write(SpicyList::Nil);
+
+        unsafe {
+            // SAFETY: SpicyList and List have the same memory layout,
+            // and root_node is now fully initialized
+            std::mem::transmute::<SpicyList, List>(root_node)
+        }
     }
 }
 
@@ -193,5 +218,34 @@ impl Debug for List {
         }
         write!(f, ")")?;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use std::rc::Rc;
+
+    use super::List;
+
+    #[test]
+    fn list_ops() {
+        let test_list = List::Cons(
+            1.into(),
+            Rc::new(List::Cons(
+                2.into(),
+                Rc::new(List::Cons(3.into(), Rc::new(List::Nil))),
+            )),
+        );
+        let head = &1.into();
+        let tail = Rc::new(List::Cons(
+            2.into(),
+            Rc::new(List::Cons(3.into(), Rc::new(List::Nil))),
+        ));
+
+        assert_eq!(test_list.head(), Some(head));
+        assert_eq!(test_list.tail(), Some(tail.clone()));
+        assert_eq!(test_list.divide(), Some((head, tail)));
+        assert_eq!(List::from_iter(vec![1.into(), 2.into(), 3.into()]), test_list);
+        println!("{:?}", List::from_iter(vec![1.into(), 2.into(), 3.into()]))
     }
 }
