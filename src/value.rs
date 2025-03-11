@@ -9,7 +9,6 @@
 use std::{
     convert::Infallible,
     fmt::{Debug, Display},
-    hash::Hash,
     mem::MaybeUninit,
     num::NonZero,
     rc::Weak,
@@ -268,14 +267,6 @@ impl HashlessMicroSpur {
     }
 }
 
-impl Hash for HashlessMicroSpur {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        state.write_u8(self.0.into_inner().into());
-    }
-}
-
-impl nohash_hasher::IsEnabled for HashlessMicroSpur {}
-
 unsafe impl lasso::Key for HashlessMicroSpur {
     #[inline]
     fn into_usize(self) -> usize {
@@ -285,6 +276,17 @@ unsafe impl lasso::Key for HashlessMicroSpur {
     #[inline]
     fn try_from_usize(int: usize) -> Option<Self> {
         MicroSpur::try_from_usize(int).map(Self)
+    }
+}
+
+impl intmap::IntKey for HashlessMicroSpur {
+    type Int = u8;
+
+    const PRIME: Self::Int = u8::PRIME;
+
+    #[inline(always)]
+    fn into_int(self) -> Self::Int {
+        self.into_inner().into()
     }
 }
 

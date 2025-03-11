@@ -2,12 +2,11 @@
 
 use std::{
     cell::RefCell,
-    collections::HashMap,
     fmt::{Debug, Display},
     rc::Rc,
 };
 
-use nohash_hasher::IntMap;
+use intmap::IntMap;
 use tracing::trace;
 
 use crate::{
@@ -74,7 +73,7 @@ pub struct GlobalScope {
 impl GlobalScope {
     pub fn new(interner: Rc<Interner>) -> GlobalScope {
         GlobalScope {
-            globals: HashMap::from_iter(
+            globals: IntMap::from_iter(
                 BUILTINS
                     .iter()
                     .map(|(k, v)| (interner.borrow_mut().get_or_intern(k), Value::Builtin(*v))),
@@ -107,8 +106,8 @@ impl GlobalScope {
         self.locals
             .borrow()
             .last()
-            .and_then(|scope| scope.get(name))
-            .or_else(|| self.globals.get(name))
+            .and_then(|scope| scope.get(*name))
+            .or_else(|| self.globals.get(*name))
             .ok_or_else(|| {
                 trace!(
                     "failed to look up name {}! current scopes: {}",
@@ -126,7 +125,7 @@ impl GlobalScope {
     }
 
     pub fn global_lookup(&self, name: &HashlessMicroSpur) -> Option<&Value> {
-        self.globals.get(name)
+        self.globals.get(*name)
     }
 }
 

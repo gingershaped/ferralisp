@@ -228,6 +228,7 @@ dependencies = [
  "anstream",
  "clap",
  "include_dir",
+ "intmap",
  "itertools",
  "lasso",
  "nohash-hasher",
@@ -286,6 +287,12 @@ dependencies = [
  "proc-macro2",
  "quote",
 ]
+
+[[package]]
+name = "intmap"
+version = "3.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "210870d5399600055a955c020cc97e462203c234dc2b103b5da5d80fdbd5eed5"
 
 [[package]]
 name = "is_terminal_polyfill"
