@@ -73,12 +73,14 @@ macro_rules! builtin_arguments {
     ($alias:ident, $args:ident, ($($argname:tt: $argtype:tt),*)) => {
         let mut $args = $args.into_iter();
         $(builtin_argument!($alias, $args, $argname: $argtype);)*
-        // if arg_index != $args.len() {
-        //     return Err(Error::ExtraArguments {
-        //         call_target: Value::Builtin(crate::builtins::BUILTINS[stringify!($alias)]),
-        //         arguments: $args.into_iter().map(|value| value.clone()).collect()
-        //     })
-        // }
+        if let Some(value) = $args.next() {
+            let mut arguments = vec![value.clone()];
+            arguments.extend($args.cloned());
+            return Err(Error::ExtraArguments {
+                call_target: Value::Builtin(crate::builtins::BUILTINS[stringify!($alias)]),
+                arguments,
+            })
+        }
     };
 }
 
