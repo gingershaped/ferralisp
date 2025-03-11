@@ -1,3 +1,3 @@
 # ferralisp
 
-ferralisp is a <s>BLAZING FAST FIRE EMOJI</s> rust interpeter for @dloscutoff's [tinylisp](https://github.com/dloscutoff/Esolangs/tree/master/tinylisp). It is able to run any program the reference interpreter (written in Python) can run, at almost six times the speed.
+ferralisp is an extremely fast Rust interpeter for @dloscutoff's [tinylisp](https://github.com/dloscutoff/Esolangs/tree/master/tinylisp), capable of running any program the reference interpreter can run at almost fourteen times the speed.
