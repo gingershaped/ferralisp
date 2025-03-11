@@ -36,9 +36,7 @@ pub fn parse(input: &str) -> Result<Vec<Expression<'_>>, ParseError<LineCol>> {
     tinylisp::program(input.trim())
 }
 
-pub fn parse_expression(
-    input: &str,
-) -> Result<Expression<'_>, ParseError<LineCol>> {
+pub fn parse_expression(input: &str) -> Result<Expression<'_>, ParseError<LineCol>> {
     tinylisp::expression(input.trim())
 }
 

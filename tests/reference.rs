@@ -20,7 +20,6 @@ macro_rules! tl_test {
             .collect::<Vec<Value>>();
             let outputs = include_str!(concat!("reference/", stringify!($file), ".tl.out")).lines();
 
-
             for item in inputs.into_iter().zip_longest(outputs) {
                 let EitherOrBoth::Both(input, output_str) = item else {
                     panic!("input and output are not the same length");

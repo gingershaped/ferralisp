@@ -110,8 +110,17 @@ impl GlobalScope {
             .and_then(|scope| scope.get(name))
             .or_else(|| self.globals.get(name))
             .ok_or_else(|| {
-                trace!("failed to look up name {}! current scopes: {}", name.into_inner(), self);
-                Error::UndefinedName(self.interner.borrow_mut().try_resolve(name).map(|v| v.to_owned()))
+                trace!(
+                    "failed to look up name {}! current scopes: {}",
+                    name.into_inner(),
+                    self
+                );
+                Error::UndefinedName(
+                    self.interner
+                        .borrow_mut()
+                        .try_resolve(name)
+                        .map(|v| v.to_owned()),
+                )
             })
             .cloned()
     }

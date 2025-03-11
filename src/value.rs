@@ -7,7 +7,11 @@
 //!   except for the number zero and the empty list (nil).
 
 use std::{
-    fmt::{Debug, Display}, hash::Hash, mem::MaybeUninit, num::NonZero, rc::{Rc, Weak}
+    fmt::{Debug, Display},
+    hash::Hash,
+    mem::MaybeUninit,
+    num::NonZero,
+    rc::{Rc, Weak},
 };
 
 use lasso::MicroSpur;
@@ -146,7 +150,7 @@ impl<'a> IntoIterator for &'a List {
     type IntoIter = ListIterator<'a>;
 
     fn into_iter(self) -> Self::IntoIter {
-        ListIterator(Some(&self))
+        ListIterator(Some(self))
     }
 }
 
@@ -209,7 +213,7 @@ impl Debug for List {
         while let Some(value) = item {
             Debug::fmt(value, f)?;
             item = iter.next();
-            if matches!(item, Some(_)) {
+            if item.is_some() {
                 write!(f, " ")?;
             }
         }
@@ -245,7 +249,7 @@ unsafe impl lasso::Key for HashlessMicroSpur {
 
     #[inline]
     fn try_from_usize(int: usize) -> Option<Self> {
-        MicroSpur::try_from_usize(int).map(|spur| Self(spur))
+        MicroSpur::try_from_usize(int).map(Self)
     }
 }
 
@@ -279,7 +283,10 @@ mod test {
         assert_eq!(test_list.head(), Some(head));
         assert_eq!(test_list.tail(), Some(tail.clone()));
         assert_eq!(test_list.divide(), Some((head, tail)));
-        assert_eq!(List::from_iter(vec![1.into(), 2.into(), 3.into()]), test_list);
+        assert_eq!(
+            List::from_iter(vec![1.into(), 2.into(), 3.into()]),
+            test_list
+        );
         println!("{:?}", List::from_iter(vec![1.into(), 2.into(), 3.into()]))
     }
 }

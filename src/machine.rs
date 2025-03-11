@@ -307,7 +307,7 @@ impl Machine {
             }
         };
         if !is_macro {
-            arguments = Cow::Owned(self.evaluate_args(&raw_arguments)?);
+            arguments = Cow::Owned(self.evaluate_args(raw_arguments)?);
         }
         Ok(CallInformation {
             argument_names,
@@ -335,7 +335,10 @@ impl Machine {
             // bind argument values to their names in the local scope
             match call_info.argument_names {
                 ArgumentNames::NAdic(ref names) => {
-                    for (index, pair) in names.iter().zip_longest(Cow::as_ref(&call_info.arguments)).enumerate()
+                    for (index, pair) in names
+                        .iter()
+                        .zip_longest(Cow::as_ref(&call_info.arguments))
+                        .enumerate()
                     {
                         match pair {
                             EitherOrBoth::Both(name, value) => {
@@ -467,7 +470,10 @@ mod test {
         let variadic_macro = parse_value!(machine, "(() args args)");
         let args = parse_list!(machine, "((q 42))");
 
-        let args_name = machine.interner.borrow_mut().get_or_intern_static("args").into();
+        let args_name = machine
+            .interner
+            .borrow_mut()
+            .get_or_intern_static("args");
         let q_name = machine.interner.borrow_mut().get_or_intern_static("q");
 
         assert_eq!(
@@ -490,11 +496,13 @@ mod test {
             machine.call_information(&nadic_macro, &args),
             Ok(CallInformation {
                 argument_names: ArgumentNames::NAdic(vec![args_name]),
-                arguments: Cow::Owned(vec![vec![q_name.into(), 42.into()]
+                arguments: Cow::Owned(
+                    vec![vec![q_name.into(), 42.into()]
+                        .into_iter()
+                        .collect::<Value>()]
                     .into_iter()
-                    .collect::<Value>()]
-                .into_iter()
-                .collect()),
+                    .collect()
+                ),
                 body: &args_name.into(),
             })
         );
@@ -502,11 +510,13 @@ mod test {
             machine.call_information(&variadic_macro, &args),
             Ok(CallInformation {
                 argument_names: ArgumentNames::Variadic(args_name),
-                arguments: Cow::Owned(vec![vec![q_name.into(), 42.into()]
+                arguments: Cow::Owned(
+                    vec![vec![q_name.into(), 42.into()]
+                        .into_iter()
+                        .collect::<Value>()]
                     .into_iter()
-                    .collect::<Value>()]
-                .into_iter()
-                .collect()),
+                    .collect()
+                ),
                 body: &args_name.into(),
             })
         );

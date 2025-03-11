@@ -87,11 +87,14 @@ macro_rules! builtin_arguments {
 macro_rules! builtin_argument {
     ($alias:ident, $args:ident, $name:ident: any) => {
         #[allow(unused_mut)]
-        let mut $name = $args.next().cloned().ok_or_else(|| Error::MissingArgument {
-            name: Some(stringify!($name).to_string()),
-            call_target: Value::Builtin(crate::builtins::BUILTINS[stringify!($alias)]),
-            expected_type: Some("any".to_string()),
-        })?;
+        let mut $name = $args
+            .next()
+            .cloned()
+            .ok_or_else(|| Error::MissingArgument {
+                name: Some(stringify!($name).to_string()),
+                call_target: Value::Builtin(crate::builtins::BUILTINS[stringify!($alias)]),
+                expected_type: Some("any".to_string()),
+            })?;
     };
     ($alias:ident, $args:ident, $name:ident: $argtype:path) => {
         #[allow(unused_imports)]
@@ -153,7 +156,7 @@ pub static BUILTINS: LazyLock<HashMap<&'static str, Builtin>> = LazyLock::new(||
         },
         builtin! {
             fn tail(_machine, value: List) as t {
-                Ok(value.tail().map(|tail| List(tail)).unwrap_or(Value::nil()))
+                Ok(value.tail().map(List).unwrap_or(Value::nil()))
             }
         },
         builtin! {

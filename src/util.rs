@@ -15,7 +15,8 @@ pub fn dummy_machine() -> Machine {
 #[macro_export]
 macro_rules! parse_value {
     ($machine:ident, $value:expr) => {
-        $machine.hydrate($crate::parser::parse_expression($value)
+        $machine.hydrate(
+            $crate::parser::parse_expression($value)
                 .expect("failed to parse value literal")
                 .into(),
         )
@@ -40,7 +41,7 @@ macro_rules! assert_eval {
     ($input:expr, $output:expr) => {
         let mut machine = $crate::util::dummy_machine();
         let parsed = $crate::parse_value!(machine, $input);
-        
+
         assert_eq!(
             machine.eval(&parsed),
             Ok($crate::parse_value!(machine, $output)),
