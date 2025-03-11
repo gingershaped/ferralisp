@@ -1,6 +1,6 @@
 //! the machine, or the thing that actually executes tinylisp code.
 
-use std::{cell::RefCell, collections::HashSet, env::current_dir, fmt::Debug, rc::Rc};
+use std::{borrow::Cow, cell::RefCell, collections::HashSet, env::current_dir, fmt::Debug, rc::Rc};
 
 use itertools::{EitherOrBoth, Itertools};
 use lasso::Rodeo;
@@ -120,10 +120,10 @@ enum ArgumentNames {
 }
 
 #[derive(Debug, PartialEq)]
-struct CallInformation {
+struct CallInformation<'a> {
     argument_names: ArgumentNames,
-    arguments: List,
-    body: Value,
+    arguments: Cow<'a, List>,
+    body: &'a Value,
 }
 
 pub type Interner = RefCell<Rodeo<HashlessMicroSpur>>;
@@ -242,11 +242,12 @@ impl Machine {
 
     /// inspect the structure of a user-defined function to determine how to call it,
     /// and evaluate the arguments if it's a macro
-    fn call_information(
+    fn call_information<'a>(
         &mut self,
-        target: &Value,
-        mut arguments: List,
-    ) -> Result<CallInformation, Error> {
+        target: &'a Value,
+        raw_arguments: &'a List,
+    ) -> Result<CallInformation<'a>, Error> {
+        let mut arguments = Cow::Borrowed(raw_arguments);
         let Value::List(target) = target else {
             return Err(Error::MalformedFunction {
                 value: target.clone(),
@@ -263,9 +264,9 @@ impl Machine {
                                 reason: "it is not exactly 2 or 3 items long",
                             })
                         }
-                        List::Nil => (second, third.clone(), true),
+                        List::Nil => (second, third, true),
                     },
-                    List::Nil => (first, second.clone(), false),
+                    List::Nil => (first, second, false),
                 },
                 List::Nil => {
                     return Err(Error::MalformedFunction {
@@ -306,7 +307,7 @@ impl Machine {
             }
         };
         if !is_macro {
-            arguments = self.evaluate_args(&arguments)?;
+            arguments = Cow::Owned(self.evaluate_args(&raw_arguments)?);
         }
         Ok(CallInformation {
             argument_names,
@@ -322,17 +323,19 @@ impl Machine {
     /// call stack. certain builtins (those marked as `tce` in `builtins.rs`) may also be used
     /// without disabling this optimization.
     #[instrument(ret)]
-    fn call(&mut self, call_target: &Value, raw_args: List) -> ValueResult {
+    fn call(&mut self, call_target: &Value, raw_args: &List) -> ValueResult {
         // all of this is mutable so TCE can update it
         let mut call_info = self.call_information(call_target, raw_args)?;
         let mut scope = self.scope.local();
+        let mut head;
+        let mut body;
 
         loop {
             trace!("current call information: {:?}", call_info);
             // bind argument values to their names in the local scope
             match call_info.argument_names {
                 ArgumentNames::NAdic(ref names) => {
-                    for (index, pair) in names.iter().zip_longest(&call_info.arguments).enumerate()
+                    for (index, pair) in names.iter().zip_longest(Cow::as_ref(&call_info.arguments)).enumerate()
                     {
                         match pair {
                             EitherOrBoth::Both(name, value) => {
@@ -368,12 +371,12 @@ impl Machine {
                 }
                 ArgumentNames::Variadic(name) => {
                     // summon a list from the ether to hold the arguments
-                    scope.insert(name, Value::List(Rc::new(call_info.arguments)));
+                    scope.insert(name, Value::List(Rc::new(call_info.arguments.into_owned())));
                 }
             }
             trace!("local scope: {}", scope);
 
-            let mut body = call_info.body.clone();
+            body = call_info.body.clone();
             while let Value::List(ref body_inner) = body {
                 if let List::Cons(head, tail) = body_inner.as_ref() {
                     let head = self.eval(head)?;
@@ -388,10 +391,10 @@ impl Machine {
             }
 
             if let Value::List(ref body) = body {
-                if let List::Cons(head, tail) = body.as_ref() {
-                    let head = self.eval(head)?;
+                if let List::Cons(raw_head, tail) = body.as_ref() {
+                    head = self.eval(raw_head)?;
                     if matches!(head, Value::List(_)) {
-                        call_info = self.call_information(&head, tail.as_ref().clone())?;
+                        call_info = self.call_information(&head, tail.as_ref())?;
                         scope.clear();
                         continue;
                     }
@@ -412,14 +415,14 @@ impl Machine {
                     List::Nil => Ok(value.clone()),
                     // otherwise it's a function call
                     List::Cons(target, args) => {
-                        let mut args = args.as_ref().clone();
+                        let mut args = Cow::Borrowed(args.as_ref());
                         trace!("attempting to invoke {} with raw_args {:?}", target, &args);
                         let target = self.eval(target)?;
                         match target {
-                            Value::List(_) => self.call(&target, args),
+                            Value::List(_) => self.call(&target, args.as_ref()),
                             Value::Builtin(builtin) => {
                                 if !builtin.is_macro {
-                                    args = self.evaluate_args(&args)?;
+                                    args = Cow::Owned(self.evaluate_args(&args)?);
                                 }
                                 trace!(
                                     "invoking builtin {} with args {}",
@@ -445,6 +448,8 @@ impl Machine {
 
 #[cfg(test)]
 mod test {
+    use std::borrow::Cow;
+
     use crate::{
         machine::{ArgumentNames, CallInformation},
         parse_list, parse_value,
@@ -462,47 +467,47 @@ mod test {
         let variadic_macro = parse_value!(machine, "(() args args)");
         let args = parse_list!(machine, "((q 42))");
 
-        let args_name = machine.interner.borrow_mut().get_or_intern_static("args");
+        let args_name = machine.interner.borrow_mut().get_or_intern_static("args").into();
         let q_name = machine.interner.borrow_mut().get_or_intern_static("q");
 
         assert_eq!(
-            machine.call_information(&nadic_function, args.clone()),
+            machine.call_information(&nadic_function, &args),
             Ok(CallInformation {
                 argument_names: ArgumentNames::NAdic(vec![args_name]),
-                arguments: vec![42.into()].into_iter().collect(),
-                body: args_name.into(),
+                arguments: Cow::Owned(vec![42.into()].into_iter().collect()),
+                body: &args_name.into(),
             })
         );
         assert_eq!(
-            machine.call_information(&variadic_function, args.clone()),
+            machine.call_information(&variadic_function, &args),
             Ok(CallInformation {
                 argument_names: ArgumentNames::Variadic(args_name),
-                arguments: vec![42.into()].into_iter().collect(),
-                body: args_name.into(),
+                arguments: Cow::Owned(vec![42.into()].into_iter().collect()),
+                body: &args_name.into(),
             })
         );
         assert_eq!(
-            machine.call_information(&nadic_macro, args.clone()),
+            machine.call_information(&nadic_macro, &args),
             Ok(CallInformation {
                 argument_names: ArgumentNames::NAdic(vec![args_name]),
-                arguments: vec![vec![q_name.into(), 42.into()]
+                arguments: Cow::Owned(vec![vec![q_name.into(), 42.into()]
                     .into_iter()
                     .collect::<Value>()]
                 .into_iter()
-                .collect(),
-                body: args_name.into(),
+                .collect()),
+                body: &args_name.into(),
             })
         );
         assert_eq!(
-            machine.call_information(&variadic_macro, args.clone()),
+            machine.call_information(&variadic_macro, &args),
             Ok(CallInformation {
                 argument_names: ArgumentNames::Variadic(args_name),
-                arguments: vec![vec![q_name.into(), 42.into()]
+                arguments: Cow::Owned(vec![vec![q_name.into(), 42.into()]
                     .into_iter()
                     .collect::<Value>()]
                 .into_iter()
-                .collect(),
-                body: args_name.into(),
+                .collect()),
+                body: &args_name.into(),
             })
         );
     }
