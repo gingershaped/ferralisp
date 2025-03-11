@@ -7,23 +7,20 @@
 //!   except for the number zero and the empty list (nil).
 
 use std::{
-    cell::RefCell,
-    fmt::{Debug, Display},
-    mem::MaybeUninit,
-    rc::{Rc, Weak},
+    fmt::{Debug, Display}, hash::Hash, mem::MaybeUninit, num::NonZero, rc::{Rc, Weak}
 };
 
-use lasso::{Rodeo, Spur};
+use lasso::MicroSpur;
 use strum_macros::IntoStaticStr;
 
-use crate::builtins::Builtin;
+use crate::{builtins::Builtin, machine::Interner};
 
 #[derive(Clone, IntoStaticStr)]
 pub enum Value {
     List(Rc<List>),
     Builtin(Builtin),
     Integer(i64),
-    Name((Spur, Weak<RefCell<Rodeo>>)),
+    Name((HashlessMicroSpur, Weak<Interner>)),
 }
 
 impl Value {
@@ -92,8 +89,8 @@ impl From<i64> for Value {
     }
 }
 
-impl From<Spur> for Value {
-    fn from(value: Spur) -> Self {
+impl From<HashlessMicroSpur> for Value {
+    fn from(value: HashlessMicroSpur) -> Self {
         Value::Name((value, Weak::new()))
     }
 }
@@ -218,6 +215,43 @@ impl Debug for List {
         }
         write!(f, ")")?;
         Ok(())
+    }
+}
+
+#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[repr(transparent)]
+pub struct HashlessMicroSpur(MicroSpur);
+
+impl HashlessMicroSpur {
+    #[inline]
+    pub const fn into_inner(&self) -> NonZero<u8> {
+        self.0.into_inner()
+    }
+}
+
+impl Hash for HashlessMicroSpur {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        state.write_u8(self.0.into_inner().into());
+    }
+}
+
+impl nohash_hasher::IsEnabled for HashlessMicroSpur {}
+
+unsafe impl lasso::Key for HashlessMicroSpur {
+    #[inline]
+    fn into_usize(self) -> usize {
+        self.0.into_usize()
+    }
+
+    #[inline]
+    fn try_from_usize(int: usize) -> Option<Self> {
+        MicroSpur::try_from_usize(int).map(|spur| Self(spur))
+    }
+}
+
+impl Debug for HashlessMicroSpur {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.0.fmt(f)
     }
 }
 

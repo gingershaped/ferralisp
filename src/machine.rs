@@ -3,7 +3,7 @@
 use std::{cell::RefCell, collections::HashSet, env::current_dir, fmt::Debug, rc::Rc};
 
 use itertools::{EitherOrBoth, Itertools};
-use lasso::{Rodeo, Spur};
+use lasso::Rodeo;
 use thiserror::Error;
 use tracing::{error, instrument, trace};
 
@@ -12,7 +12,7 @@ use crate::{
     parser::Expression,
     scope::GlobalScope,
     util::or_fallback,
-    value::{List, Value},
+    value::{HashlessMicroSpur, List, Value},
 };
 
 #[derive(Error, Debug, PartialEq)]
@@ -115,8 +115,8 @@ pub struct ModuleLoad {
 
 #[derive(Debug, PartialEq)]
 enum ArgumentNames {
-    NAdic(Vec<Spur>),
-    Variadic(Spur),
+    NAdic(Vec<HashlessMicroSpur>),
+    Variadic(HashlessMicroSpur),
 }
 
 #[derive(Debug, PartialEq)]
@@ -126,7 +126,7 @@ struct CallInformation {
     body: Value,
 }
 
-pub type Interner = Rc<RefCell<Rodeo>>;
+pub type Interner = RefCell<Rodeo<HashlessMicroSpur>>;
 
 #[derive(Debug)]
 pub struct Machine {
@@ -135,7 +135,7 @@ pub struct Machine {
     loaders: Vec<Box<dyn Loader>>,
     loaded_modules: HashSet<String>,
     module_origins: Vec<ModuleLoad>,
-    interner: Interner,
+    interner: Rc<Interner>,
 }
 
 impl Machine {

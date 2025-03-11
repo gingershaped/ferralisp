@@ -7,16 +7,16 @@ use std::{
     rc::Rc,
 };
 
-use lasso::{Rodeo, Spur};
+use nohash_hasher::IntMap;
 use tracing::trace;
 
 use crate::{
     builtins::BUILTINS,
     machine::{Error, Interner, ValueResult},
-    value::Value,
+    value::{HashlessMicroSpur, Value},
 };
 
-type Scope = HashMap<Spur, Value>;
+type Scope = IntMap<HashlessMicroSpur, Value>;
 type Locals = Rc<RefCell<Vec<Scope>>>;
 
 pub struct LocalScope {
@@ -29,7 +29,7 @@ impl LocalScope {
         f(scopes.last_mut().expect("local scope stack underflow"))
     }
 
-    pub fn insert(&mut self, key: Spur, value: Value) {
+    pub fn insert(&mut self, key: HashlessMicroSpur, value: Value) {
         self.scope(|scope| scope.insert(key, value));
     }
 
@@ -68,11 +68,11 @@ impl Display for LocalScope {
 pub struct GlobalScope {
     globals: Scope,
     locals: Locals,
-    interner: Rc<RefCell<Rodeo>>,
+    interner: Rc<Interner>,
 }
 
 impl GlobalScope {
-    pub fn new(interner: Interner) -> GlobalScope {
+    pub fn new(interner: Rc<Interner>) -> GlobalScope {
         GlobalScope {
             globals: HashMap::from_iter(
                 BUILTINS
@@ -84,26 +84,26 @@ impl GlobalScope {
         }
     }
 
-    pub fn with_globals(interner: Interner, globals: Scope) -> GlobalScope {
+    pub fn with_globals(interner: Rc<Interner>, globals: Scope) -> GlobalScope {
         let mut scope = GlobalScope::new(interner);
         scope.globals.extend(globals);
         scope
     }
 
-    pub fn insert(&mut self, key: Spur, value: Value) {
+    pub fn insert(&mut self, key: HashlessMicroSpur, value: Value) {
         trace!("defining new global {} = {}", key.into_inner(), value);
         self.globals.insert(key, value);
     }
 
     pub fn local(&self) -> LocalScope {
         trace!("pushing local scope");
-        self.locals.borrow_mut().push(HashMap::new());
+        self.locals.borrow_mut().push(IntMap::default());
         LocalScope {
             locals: self.locals.clone(),
         }
     }
 
-    pub fn lookup(&self, name: &Spur) -> ValueResult {
+    pub fn lookup(&self, name: &HashlessMicroSpur) -> ValueResult {
         self.locals
             .borrow()
             .last()
@@ -116,7 +116,7 @@ impl GlobalScope {
             .cloned()
     }
 
-    pub fn global_lookup(&self, name: &Spur) -> Option<&Value> {
+    pub fn global_lookup(&self, name: &HashlessMicroSpur) -> Option<&Value> {
         self.globals.get(name)
     }
 }
