@@ -233,6 +233,7 @@ dependencies = [
  "nohash-hasher",
  "owo-colors",
  "peg",
+ "refpool",
  "rustyline",
  "strum_macros",
  "test-log",
@@ -464,6 +465,12 @@ dependencies = [
  "endian-type",
  "nibble_vec",
 ]
+
+[[package]]
+name = "refpool"
+version = "0.4.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "369e86b80fa7dc8c561dd9613a5bf25c59d2d3073cd66c47fd9e39802f0ecb58"
 
 [[package]]
 name = "regex"

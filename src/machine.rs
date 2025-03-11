@@ -4,6 +4,7 @@ use std::{borrow::Cow, cell::RefCell, collections::HashSet, env::current_dir, fm
 
 use itertools::{EitherOrBoth, Itertools};
 use lasso::Rodeo;
+use refpool::{Pool, PoolRef};
 use thiserror::Error;
 use tracing::{error, instrument, trace};
 
@@ -132,6 +133,7 @@ pub type Interner = RefCell<Rodeo<HashlessMicroSpur>>;
 pub struct Machine {
     pub scope: GlobalScope,
     pub(crate) world: Box<dyn World>,
+    pub pool: Pool<List>,
     loaders: Vec<Box<dyn Loader>>,
     loaded_modules: HashSet<String>,
     module_origins: Vec<ModuleLoad>,
@@ -139,11 +141,14 @@ pub struct Machine {
 }
 
 impl Machine {
+    const POOL_SIZE: usize = 2_usize.pow(16);
+
     pub fn new(world: impl World + 'static, loaders: Vec<Box<dyn Loader>>) -> Self {
         let interner = Rc::new(RefCell::new(Rodeo::new()));
         Machine {
             scope: GlobalScope::new(interner.clone()),
             world: Box::new(world),
+            pool: Pool::new(Self::POOL_SIZE),
             loaders,
             loaded_modules: HashSet::new(),
             module_origins: vec![],
@@ -167,11 +172,14 @@ impl Machine {
         match expression {
             Expression::Integer(value) => Value::Integer(value),
             Expression::Name(name) => self.create_name(name),
-            Expression::List(expressions) => Value::List(Rc::new(
-                expressions
-                    .into_iter()
-                    .map(|expression| self.hydrate(expression))
-                    .collect(),
+            Expression::List(expressions) => Value::List(PoolRef::new(
+                &self.pool,
+                List::from_iter(
+                    &self.pool,
+                    expressions
+                        .into_iter()
+                        .map(|expression| self.hydrate(expression)),
+                ),
             )),
         }
     }
@@ -214,7 +222,7 @@ impl Machine {
                         if cache {
                             self.loaded_modules.insert(path);
                         }
-                        return Ok(Value::nil());
+                        return Ok(Value::nil(&self.pool));
                     }
                     LoadResult::Err(source) => {
                         return Err(Error::ModuleLoadError(ModuleLoadError {
@@ -230,14 +238,15 @@ impl Machine {
                 loaders: self.loaders.iter().map(|loader| loader.name()).collect(),
             });
         }
-        Ok(Value::nil())
+        Ok(Value::nil(&self.pool))
     }
 
     fn evaluate_args(&mut self, arguments: &List) -> Result<List, Error> {
-        arguments
-            .into_iter()
-            .map(|value| self.eval(value))
-            .collect::<Result<_, _>>()
+        List::try_from_iter(
+            // cloning the pool doesn't actually clone its data
+            &self.pool.clone(),
+            arguments.into_iter().map(|value| self.eval(value)),
+        )
     }
 
     /// inspect the structure of a user-defined function to determine how to call it,
@@ -374,7 +383,10 @@ impl Machine {
                 }
                 ArgumentNames::Variadic(name) => {
                     // summon a list from the ether to hold the arguments
-                    scope.insert(name, Value::List(Rc::new(call_info.arguments.into_owned())));
+                    scope.insert(
+                        name,
+                        Value::List(PoolRef::new(&self.pool, call_info.arguments.into_owned())),
+                    );
                 }
             }
             trace!("local scope: {}", scope);
@@ -457,7 +469,7 @@ mod test {
         machine::{ArgumentNames, CallInformation},
         parse_list, parse_value,
         util::dummy_machine,
-        value::Value,
+        value::{List, Value},
     };
 
     #[test]
@@ -470,17 +482,14 @@ mod test {
         let variadic_macro = parse_value!(machine, "(() args args)");
         let args = parse_list!(machine, "((q 42))");
 
-        let args_name = machine
-            .interner
-            .borrow_mut()
-            .get_or_intern_static("args");
+        let args_name = machine.interner.borrow_mut().get_or_intern_static("args");
         let q_name = machine.interner.borrow_mut().get_or_intern_static("q");
 
         assert_eq!(
             machine.call_information(&nadic_function, &args),
             Ok(CallInformation {
                 argument_names: ArgumentNames::NAdic(vec![args_name]),
-                arguments: Cow::Owned(vec![42.into()].into_iter().collect()),
+                arguments: Cow::Owned(List::from_iter(&machine.pool, vec![42.into()])),
                 body: &args_name.into(),
             })
         );
@@ -488,7 +497,7 @@ mod test {
             machine.call_information(&variadic_function, &args),
             Ok(CallInformation {
                 argument_names: ArgumentNames::Variadic(args_name),
-                arguments: Cow::Owned(vec![42.into()].into_iter().collect()),
+                arguments: Cow::Owned(List::from_iter(&machine.pool, vec![42.into()])),
                 body: &args_name.into(),
             })
         );
@@ -496,13 +505,13 @@ mod test {
             machine.call_information(&nadic_macro, &args),
             Ok(CallInformation {
                 argument_names: ArgumentNames::NAdic(vec![args_name]),
-                arguments: Cow::Owned(
-                    vec![vec![q_name.into(), 42.into()]
-                        .into_iter()
-                        .collect::<Value>()]
-                    .into_iter()
-                    .collect()
-                ),
+                arguments: Cow::Owned(List::from_iter(
+                    &machine.pool,
+                    vec![Value::from_iter(
+                        &machine.pool,
+                        vec![q_name.into(), 42.into()]
+                    )]
+                )),
                 body: &args_name.into(),
             })
         );
@@ -510,13 +519,13 @@ mod test {
             machine.call_information(&variadic_macro, &args),
             Ok(CallInformation {
                 argument_names: ArgumentNames::Variadic(args_name),
-                arguments: Cow::Owned(
-                    vec![vec![q_name.into(), 42.into()]
-                        .into_iter()
-                        .collect::<Value>()]
-                    .into_iter()
-                    .collect()
-                ),
+                arguments: Cow::Owned(List::from_iter(
+                    &machine.pool,
+                    vec![Value::from_iter(
+                        &machine.pool,
+                        vec![q_name.into(), 42.into()].into_iter()
+                    )]
+                )),
                 body: &args_name.into(),
             })
         );

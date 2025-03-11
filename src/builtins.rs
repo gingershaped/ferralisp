@@ -1,7 +1,9 @@
 //! all the tinylisp builtins. these will be injected into the global namespace
 //! of newly created machines.
 
-use std::{collections::HashMap, rc::Rc, sync::LazyLock};
+use std::{collections::HashMap, sync::LazyLock};
+
+use refpool::PoolRef;
 
 use crate::{
     machine::{Error, Machine, ValueResult},
@@ -145,18 +147,18 @@ macro_rules! builtin_argument {
 pub static BUILTINS: LazyLock<HashMap<&'static str, Builtin>> = LazyLock::new(|| {
     HashMap::from([
         builtin! {
-            fn cons(_machine, value: any, list: List) as c {
-                Ok(List(Rc::new(crate::value::List::Cons(value, list.clone()))))
+            fn cons(machine, value: any, list: List) as c {
+                Ok(List(PoolRef::new(&machine.pool, crate::value::List::Cons(value, list.clone()))))
             }
         },
         builtin! {
-            fn head(_machine, value: List) as h {
-                Ok(value.head().cloned().unwrap_or(Value::nil()))
+            fn head(machine, value: List) as h {
+                Ok(value.head().cloned().unwrap_or(Value::nil(&machine.pool)))
             }
         },
         builtin! {
-            fn tail(_machine, value: List) as t {
-                Ok(value.tail().map(List).unwrap_or(Value::nil()))
+            fn tail(machine, value: List) as t {
+                Ok(value.tail().map(List).unwrap_or(Value::nil(&machine.pool)))
             }
         },
         builtin! {
@@ -201,11 +203,11 @@ pub static BUILTINS: LazyLock<HashMap<&'static str, Builtin>> = LazyLock::new(||
             }
         },
         builtin! {
-            fn chars(_machine, name: Name) as chars {
+            fn chars(machine, name: Name) as chars {
                 let interner = name.1.upgrade().expect("unbound name passed to (chars)");
                 let interner = interner.borrow();
                 let name = interner.resolve(&name.0);
-                Ok(Value::List(Rc::new(name.chars().map(|char| Value::Integer(char as i64)).collect())))
+                Ok(Value::from_iter(&machine.pool, name.chars().map(|char| Value::Integer(char as i64))))
             }
         },
         builtin! {
@@ -272,8 +274,8 @@ pub static BUILTINS: LazyLock<HashMap<&'static str, Builtin>> = LazyLock::new(||
             }
         },
         builtin! {
-            macro comment(_machine, *args) as comment {
-                Ok(Value::nil())
+            macro comment(machine, *args) as comment {
+                Ok(Value::nil(&machine.pool))
             }
         },
     ])

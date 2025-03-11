@@ -12,6 +12,7 @@ lasso = { version = "0.7.3", features = ["inline-more"]}
 nohash-hasher = "0.2.0"
 owo-colors = "4.2.0"
 peg = "0.8.4"
+refpool = "0.4.3"
 rustyline = "15.0.0"
 strum_macros = "0.27.0"
 thiserror = "2.0.11"
