@@ -9,6 +9,7 @@ use thiserror::Error;
 use tracing::{error, instrument, trace};
 
 use crate::{
+    builtins::BUILTINS,
     loaders::{FileLoader, StdlibLoader},
     parser::Expression,
     scope::GlobalScope,
@@ -171,7 +172,10 @@ impl Machine {
     pub fn hydrate(&self, expression: Expression) -> Value {
         match expression {
             Expression::Integer(value) => Value::Integer(value),
-            Expression::Name(name) => self.create_name(name),
+            Expression::Name(name) => BUILTINS
+                .get(name)
+                .map(|builtin| Value::Builtin(*builtin))
+                .unwrap_or_else(|| self.create_name(name)),
             Expression::List(expressions) => Value::List(PoolRef::new(
                 &self.pool,
                 List::from_iter(
