@@ -23,10 +23,12 @@ struct Cli {
     #[command(flatten)]
     source: Option<Source>,
 
+    /// Instead of evaluating, output a parse tree.
     #[arg(long)]
     parsetree: bool,
 
-    #[arg(long = "opt")]
+    /// Configure the optimization level.
+    #[arg(long = "opt", default_value_t, value_enum)]
     optimizations: OptimizationLevel,
 }
 
@@ -34,7 +36,9 @@ struct Cli {
 #[group(multiple = false)]
 struct Source {
     #[arg(short = 'c', long = "code")]
+    /// Instead of using a file, execute code from the command line.
     code: Option<String>,
+    /// The file to read the program from.
     file: Option<PathBuf>,
 }
 

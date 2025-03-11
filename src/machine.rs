@@ -132,7 +132,10 @@ pub type Interner = RefCell<Rodeo<HashlessMicroSpur>>;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, clap::ValueEnum)]
 #[repr(u8)]
 pub enum OptimizationLevel {
+    /// Normal optimizations are applied, maintaining compatibility with the reference interpreter
     Normal,
+    /// Allows ferralisp to perform arbitrary transformations to your program,
+    /// possibly breaking compatibility with the reference interpreter
     Dangerous
 }
 
