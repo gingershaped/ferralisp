@@ -7,7 +7,12 @@
 //!   except for the number zero and the empty list (nil).
 
 use std::{
-    convert::Infallible, fmt::{Debug, Display}, hash::Hash, mem::MaybeUninit, num::NonZero, rc::Weak
+    convert::Infallible,
+    fmt::{Debug, Display},
+    hash::Hash,
+    mem::MaybeUninit,
+    num::NonZero,
+    rc::Weak,
 };
 
 use lasso::MicroSpur;
@@ -38,7 +43,7 @@ impl Value {
     }
 
     pub fn from_iter<T: IntoIterator<Item = Value>>(pool: &Pool<List>, iter: T) -> Self {
-        Value::List(PoolRef::new(pool, List::from_iter(pool, iter.into_iter())))
+        Value::List(PoolRef::new(pool, List::from_iter(pool, iter)))
     }
 }
 
@@ -102,8 +107,10 @@ impl From<HashlessMicroSpur> for Value {
 
 #[derive(Clone, PartialEq)]
 #[repr(C)]
+#[derive(Default)]
 pub enum List {
     Cons(Value, PoolRef<List>),
+    #[default]
     Nil,
 }
 
@@ -138,11 +145,6 @@ impl List {
     }
 }
 
-impl Default for List {
-    fn default() -> Self {
-        List::Nil
-    }
-}
 
 impl PoolDefault for List {
     unsafe fn default_uninit(target: &mut MaybeUninit<Self>) {
@@ -185,14 +187,17 @@ impl List {
     pub fn from_iter<T: IntoIterator<Item = Value>>(pool: &Pool<List>, iter: T) -> Self {
         unsafe {
             // SAFETY: unwrap_unchecked() can never fail
-            Self::try_from_iter(pool, iter.into_iter().map(|v| Ok::<Value, Infallible>(v))).unwrap_unchecked()
+            Self::try_from_iter(pool, iter.into_iter().map(Ok::<Value, Infallible>))
+                .unwrap_unchecked()
         }
     }
 
-    pub fn try_from_iter<E, T: IntoIterator<Item = Result<Value, E>>>(pool: &Pool<List>, iter: T) -> Result<Self, E> {
-        let pool = unsafe {
-            std::mem::transmute::<&Pool<List>, &Pool<MaybeUninit<SpicyList>>>(pool)
-        };
+    pub fn try_from_iter<E, T: IntoIterator<Item = Result<Value, E>>>(
+        pool: &Pool<List>,
+        iter: T,
+    ) -> Result<Self, E> {
+        let pool =
+            unsafe { std::mem::transmute::<&Pool<List>, &Pool<MaybeUninit<SpicyList>>>(pool) };
         let mut iter = iter.into_iter();
         let mut root_node = if let Some(first) = iter.next() {
             SpicyList::Cons(first?, PoolRef::new(pool, MaybeUninit::uninit()))
@@ -207,7 +212,8 @@ impl List {
                     let SpicyList::Cons(_, ref mut ptr) = node else {
                         unreachable!()
                     };
-                    let next_node = SpicyList::Cons(item, PoolRef::new(pool, MaybeUninit::uninit()));
+                    let next_node =
+                        SpicyList::Cons(item, PoolRef::new(pool, MaybeUninit::uninit()));
                     node = PoolRef::get_mut(ptr).unwrap().write(next_node);
                 }
                 Err(err) => {
@@ -216,7 +222,7 @@ impl List {
                     // pointing to uninitialized data, but dropping it doesn't do anything, and
                     // the data it points to will then be correctly marked as uninitialized by the pool
                     // (which changes nothing, since it was never initialized in the first place).
-                    return Err(err)
+                    return Err(err);
                 }
             }
         }
@@ -300,16 +306,22 @@ mod test {
 
         let test_list = List::Cons(
             1.into(),
-            PoolRef::new(&pool, List::Cons(
-                2.into(),
-                PoolRef::new(&pool, List::Cons(3.into(), PoolRef::default(&pool))),
-            )),
+            PoolRef::new(
+                &pool,
+                List::Cons(
+                    2.into(),
+                    PoolRef::new(&pool, List::Cons(3.into(), PoolRef::default(&pool))),
+                ),
+            ),
         );
         let head = &1.into();
-        let tail = PoolRef::new(&pool, List::Cons(
-            2.into(),
-            PoolRef::new(&pool, List::Cons(3.into(), PoolRef::default(&pool))),
-        ));
+        let tail = PoolRef::new(
+            &pool,
+            List::Cons(
+                2.into(),
+                PoolRef::new(&pool, List::Cons(3.into(), PoolRef::default(&pool))),
+            ),
+        );
 
         assert_eq!(test_list.head(), Some(head));
         assert_eq!(test_list.tail(), Some(tail.clone()));
@@ -318,6 +330,9 @@ mod test {
             List::from_iter(&pool, vec![1.into(), 2.into(), 3.into()]),
             test_list
         );
-        println!("{:?}", List::from_iter(&pool, vec![1.into(), 2.into(), 3.into()]))
+        println!(
+            "{:?}",
+            List::from_iter(&pool, vec![1.into(), 2.into(), 3.into()])
+        )
     }
 }
