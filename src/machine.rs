@@ -13,7 +13,7 @@ use crate::{
     parser::Expression,
     scope::GlobalScope,
     util::or_fallback,
-    value::{HashlessMicroSpur, List, Value},
+    value::{HashlessMiniSpur, List, Value},
 };
 
 #[derive(Error, Debug, PartialEq)]
@@ -116,8 +116,8 @@ pub struct ModuleLoad {
 
 #[derive(Debug, PartialEq)]
 enum ArgumentNames {
-    NAdic(Vec<HashlessMicroSpur>),
-    Variadic(HashlessMicroSpur),
+    NAdic(Vec<HashlessMiniSpur>),
+    Variadic(HashlessMiniSpur),
 }
 
 #[derive(Debug, PartialEq)]
@@ -127,7 +127,7 @@ struct CallInformation<'a> {
     body: &'a Value,
 }
 
-pub type Interner = RefCell<Rodeo<HashlessMicroSpur>>;
+pub type Interner = RefCell<Rodeo<HashlessMiniSpur>>;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, clap::ValueEnum)]
 #[repr(u8)]

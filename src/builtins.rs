@@ -271,9 +271,11 @@ pub static BUILTINS: LazyLock<HashMap<&'static str, Builtin>> = LazyLock::new(||
         builtin! {
             macro load(machine, path: Name) as load {
                 let interner = path.1.upgrade().expect("unbound name passed to (chars)");
-                let interner = interner.borrow();
-                let path = interner.resolve(&path.0);
-                machine.load(path.to_owned())
+                let path = {
+                    let interner = interner.borrow();
+                    interner.resolve(&path.0).to_owned()
+                };
+                machine.load(path)
             }
         },
         builtin! {
@@ -288,7 +290,13 @@ pub static BUILTINS: LazyLock<HashMap<&'static str, Builtin>> = LazyLock::new(||
 mod test {
     use test_log::test;
 
-    use crate::{assert_eval, parse_value, util::dummy_machine};
+    use crate::{
+        assert_eval,
+        loaders::StdlibLoader,
+        machine::{Machine, OptimizationLevel},
+        parse_value,
+        util::{dummy_machine, DummyWorld},
+    };
 
     #[test]
     fn cons() {
@@ -373,6 +381,24 @@ mod test {
         assert_eq!(
             machine.eval(&machine.create_name("the_answer")),
             Ok(42.into())
+        );
+    }
+
+    #[test]
+    fn load() {
+        let mut machine = Machine::new(
+            DummyWorld,
+            vec![Box::new(StdlibLoader)],
+            OptimizationLevel::Normal,
+        );
+
+        assert_eq!(
+            machine.eval(&parse_value!(machine, "(load library)")),
+            Ok(parse_value!(machine, "()"))
+        );
+        assert_eq!(
+            machine.eval(&parse_value!(machine, "tinylisp")),
+            Ok(machine.create_name("awesome"))
         );
     }
 }

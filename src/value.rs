@@ -14,7 +14,7 @@ use std::{
     rc::Weak,
 };
 
-use lasso::MicroSpur;
+use lasso::MiniSpur;
 use refpool::{Pool, PoolDefault, PoolRef};
 use strum_macros::IntoStaticStr;
 
@@ -26,7 +26,7 @@ pub enum Value {
     // boolean flag for if this builtin was inlined from a name by Machine::hydrate()
     Builtin(Builtin),
     Integer(i64),
-    Name((HashlessMicroSpur, Weak<Interner>)),
+    Name((HashlessMiniSpur, Weak<Interner>)),
 }
 
 impl Value {
@@ -99,8 +99,8 @@ impl From<i64> for Value {
     }
 }
 
-impl From<HashlessMicroSpur> for Value {
-    fn from(value: HashlessMicroSpur) -> Self {
+impl From<HashlessMiniSpur> for Value {
+    fn from(value: HashlessMiniSpur) -> Self {
         Value::Name((value, Weak::new()))
     }
 }
@@ -260,16 +260,16 @@ impl Debug for List {
 
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
 #[repr(transparent)]
-pub struct HashlessMicroSpur(MicroSpur);
+pub struct HashlessMiniSpur(MiniSpur);
 
-impl HashlessMicroSpur {
+impl HashlessMiniSpur {
     #[inline]
-    pub const fn into_inner(&self) -> NonZero<u8> {
+    pub const fn into_inner(&self) -> NonZero<u16> {
         self.0.into_inner()
     }
 }
 
-unsafe impl lasso::Key for HashlessMicroSpur {
+unsafe impl lasso::Key for HashlessMiniSpur {
     #[inline]
     fn into_usize(self) -> usize {
         self.0.into_usize()
@@ -277,14 +277,14 @@ unsafe impl lasso::Key for HashlessMicroSpur {
 
     #[inline]
     fn try_from_usize(int: usize) -> Option<Self> {
-        MicroSpur::try_from_usize(int).map(Self)
+        MiniSpur::try_from_usize(int).map(Self)
     }
 }
 
-impl intmap::IntKey for HashlessMicroSpur {
-    type Int = u8;
+impl intmap::IntKey for HashlessMiniSpur {
+    type Int = u16;
 
-    const PRIME: Self::Int = u8::PRIME;
+    const PRIME: Self::Int = u16::PRIME;
 
     #[inline(always)]
     fn into_int(self) -> Self::Int {
@@ -292,7 +292,7 @@ impl intmap::IntKey for HashlessMicroSpur {
     }
 }
 
-impl Debug for HashlessMicroSpur {
+impl Debug for HashlessMiniSpur {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         self.0.fmt(f)
     }
