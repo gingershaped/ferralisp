@@ -10,6 +10,13 @@ use ferralisp::{
 use owo_colors::OwoColorize;
 use rustyline::{error::ReadlineError, DefaultEditor};
 
+#[cfg(not(target_env = "msvc"))]
+use tikv_jemallocator::Jemalloc;
+
+#[cfg(not(target_env = "msvc"))]
+#[global_allocator]
+static GLOBAL: Jemalloc = Jemalloc;
+
 #[derive(Debug, Parser)]
 #[command(name = "ferralisp")]
 struct Cli {
