@@ -3,7 +3,7 @@ use std::{error::Error, fs::read_to_string, path::PathBuf};
 use anstream::println;
 use clap::{Args, Parser};
 use ferralisp::{
-    machine::{Machine, World},
+    machine::{Machine, OptimizationLevel, World},
     parser::{parse, parse_expression},
     value::Value,
 };
@@ -25,6 +25,9 @@ struct Cli {
 
     #[arg(long)]
     parsetree: bool,
+
+    #[arg(long = "opt")]
+    optimizations: OptimizationLevel,
 }
 
 #[derive(Debug, Args)]
@@ -51,8 +54,8 @@ impl World for ConsoleWorld {
     }
 }
 
-fn repl() -> Result<(), Box<dyn Error>> {
-    let mut machine = Machine::with_default_loaders(ConsoleWorld);
+fn repl(args: Cli) -> Result<(), Box<dyn Error>> {
+    let mut machine = Machine::with_default_loaders(ConsoleWorld, args.optimizations);
     let mut rl = DefaultEditor::new()?;
 
     println!("(welcome to {})", "ferralisp".purple());
@@ -99,7 +102,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                 return Ok(());
             }
 
-            let mut machine = Machine::with_default_loaders(ConsoleWorld);
+            let mut machine = Machine::with_default_loaders(ConsoleWorld, args.optimizations);
             for expression in parsed {
                 match machine.eval(&machine.hydrate(expression)) {
                     Ok(value) => println!("{}", value),
@@ -112,6 +115,6 @@ fn main() -> Result<(), Box<dyn Error>> {
 
             Ok(())
         }
-        None => repl(),
+        None => repl(args),
     }
 }

@@ -1,5 +1,5 @@
 use crate::{
-    machine::{Machine, World},
+    machine::{Machine, OptimizationLevel, World},
     value::Value,
 };
 
@@ -9,7 +9,7 @@ impl World for DummyWorld {
 }
 
 pub fn dummy_machine() -> Machine {
-    Machine::new(DummyWorld, vec![])
+    Machine::new(DummyWorld, vec![], OptimizationLevel::Normal)
 }
 
 #[macro_export]

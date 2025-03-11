@@ -3,8 +3,8 @@
 //! - Builtin: a built-in function or macro
 //! - Integer: a signed 64-bit integer
 //! - Name: a name
-//!   all values are truthy for the purposes of builtins like `i`,
-//!   except for the number zero and the empty list (nil).
+//! all values are truthy for the purposes of builtins like `i`,
+//! except for the number zero and the empty list (nil).
 
 use std::{
     convert::Infallible,
@@ -23,6 +23,7 @@ use crate::{builtins::Builtin, machine::Interner};
 #[derive(Clone, IntoStaticStr)]
 pub enum Value {
     List(PoolRef<List>),
+    // boolean flag for if this builtin was inlined from a name by Machine::hydrate()
     Builtin(Builtin),
     Integer(i64),
     Name((HashlessMicroSpur, Weak<Interner>)),
@@ -176,6 +177,7 @@ impl<'a> Iterator for ListIterator<'a> {
     }
 }
 
+// this MUST have the same memory layout as List
 #[repr(C)]
 pub enum SpicyList {
     Cons(Value, PoolRef<MaybeUninit<SpicyList>>),
@@ -195,11 +197,10 @@ impl List {
         pool: &Pool<List>,
         iter: T,
     ) -> Result<Self, E> {
-        let pool =
-            unsafe { std::mem::transmute::<&Pool<List>, &Pool<MaybeUninit<SpicyList>>>(pool) };
+        let pool: Pool<MaybeUninit<SpicyList>> = pool.cast();
         let mut iter = iter.into_iter();
         let mut root_node = if let Some(first) = iter.next() {
-            SpicyList::Cons(first?, PoolRef::new(pool, MaybeUninit::uninit()))
+            SpicyList::Cons(first?, PoolRef::new(&pool, MaybeUninit::uninit()))
         } else {
             return Ok(List::Nil);
         };
@@ -212,7 +213,7 @@ impl List {
                         unreachable!()
                     };
                     let next_node =
-                        SpicyList::Cons(item, PoolRef::new(pool, MaybeUninit::uninit()));
+                        SpicyList::Cons(item, PoolRef::new(&pool, MaybeUninit::uninit()));
                     node = PoolRef::get_mut(ptr).unwrap().write(next_node);
                 }
                 Err(err) => {
@@ -226,6 +227,7 @@ impl List {
             }
         }
 
+        // set the pointer of the last node to Nil
         let SpicyList::Cons(_, ref mut ptr) = node else {
             unreachable!()
         };

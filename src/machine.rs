@@ -9,7 +9,6 @@ use thiserror::Error;
 use tracing::{error, instrument, trace};
 
 use crate::{
-    builtins::BUILTINS,
     loaders::{FileLoader, StdlibLoader},
     parser::Expression,
     scope::GlobalScope,
@@ -130,11 +129,26 @@ struct CallInformation<'a> {
 
 pub type Interner = RefCell<Rodeo<HashlessMicroSpur>>;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, clap::ValueEnum)]
+#[repr(u8)]
+pub enum OptimizationLevel {
+    Normal,
+    Dangerous
+}
+
+impl Default for OptimizationLevel {
+    fn default() -> Self {
+        OptimizationLevel::Normal
+    }
+}
+
+
 #[derive(Debug)]
 pub struct Machine {
     pub scope: GlobalScope,
     pub(crate) world: Box<dyn World>,
     pub pool: Pool<List>,
+    pub optimizations: OptimizationLevel,
     loaders: Vec<Box<dyn Loader>>,
     loaded_modules: HashSet<String>,
     module_origins: Vec<ModuleLoad>,
@@ -144,12 +158,13 @@ pub struct Machine {
 impl Machine {
     const POOL_SIZE: usize = 2_usize.pow(16);
 
-    pub fn new(world: impl World + 'static, loaders: Vec<Box<dyn Loader>>) -> Self {
+    pub fn new(world: impl World + 'static, loaders: Vec<Box<dyn Loader>>, optimizations: OptimizationLevel) -> Self {
         let interner = Rc::new(RefCell::new(Rodeo::new()));
         Machine {
             scope: GlobalScope::new(interner.clone()),
             world: Box::new(world),
             pool: Pool::new(Self::POOL_SIZE),
+            optimizations,
             loaders,
             loaded_modules: HashSet::new(),
             module_origins: vec![],
@@ -157,7 +172,7 @@ impl Machine {
         }
     }
 
-    pub fn with_default_loaders(world: impl World + 'static) -> Self {
+    pub fn with_default_loaders(world: impl World + 'static, optimizations: OptimizationLevel) -> Self {
         Self::new(
             world,
             vec![
@@ -166,16 +181,31 @@ impl Machine {
                 )),
                 Box::new(StdlibLoader),
             ],
+            optimizations
         )
     }
 
+    /// Converts an Expression (AST) into a Value containing machine-specific context.
     pub fn hydrate(&self, expression: Expression) -> Value {
+        // conversion process:
+        // - integers are just copied
+        // - names are interned, unless the name refers to a builtin
+        //   and the optimization level is Dangerous, in which case the builtin is inlined
+        // - lists are converted to linked lists and recursively hydrated
         match expression {
             Expression::Integer(value) => Value::Integer(value),
-            Expression::Name(name) => BUILTINS
-                .get(name)
-                .map(|builtin| Value::Builtin(*builtin))
-                .unwrap_or_else(|| self.create_name(name)),
+            Expression::Name(name) => {
+                let name = self.create_name(name);
+                if self.optimizations >= OptimizationLevel::Dangerous {
+                    let Value::Name((spur, _)) = name else { unreachable!() };
+                    match self.scope.global_lookup(&spur) {
+                        Some(Value::Builtin(builtin)) => Value::Builtin(*builtin),
+                        _ => name
+                    }
+                } else {
+                    name
+                }
+            },
             Expression::List(expressions) => Value::List(PoolRef::new(
                 &self.pool,
                 List::from_iter(
@@ -188,6 +218,7 @@ impl Machine {
         }
     }
 
+    /// Convert a string slice into a Value by interning it.
     pub fn create_name(&self, string: &str) -> Value {
         Value::Name((
             self.interner.borrow_mut().get_or_intern(string),
@@ -195,6 +226,7 @@ impl Machine {
         ))
     }
 
+    /// Load a module from a path by running it through the machine's loaders.
     pub fn load(&mut self, path: String) -> ValueResult {
         if !self.loaded_modules.contains(&path) {
             for loader in &self.loaders {

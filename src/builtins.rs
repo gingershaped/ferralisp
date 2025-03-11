@@ -15,6 +15,7 @@ pub struct Builtin {
     pub name: &'static str,
     pub is_macro: bool,
     pub eval_during_tce: bool,
+    pub(crate) inlined: bool,
     pub body: fn(&List, &mut Machine, bool) -> ValueResult,
 }
 
@@ -47,6 +48,7 @@ macro_rules! builtin_inner {
             name: stringify!($name),
             is_macro: $is_macro,
             eval_during_tce: false,
+            inlined: false,
             #[allow(unused_variables, unused_mut)]
             body: |args, $machine, _| {
                 builtin_arguments!($alias, args, ($($arg)*));
@@ -59,6 +61,7 @@ macro_rules! builtin_inner {
             name: stringify!($name),
             is_macro: $is_macro,
             eval_during_tce: true,
+            inlined: false,
             #[allow(unused_variables)]
             body: |args, $machine, $tce_active| {
                 builtin_arguments!($alias, args, ($($arg)*));
