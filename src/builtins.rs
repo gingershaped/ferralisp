@@ -176,7 +176,7 @@ pub static BUILTINS: LazyLock<HashMap<&'static str, Builtin>> = LazyLock::new(||
         },
         builtin! {
             tce fn eval(machine, _tce_active, value: any) as v {
-                machine.eval(value.clone())
+                machine.eval(&value)
             }
         },
         builtin! {
@@ -216,25 +216,25 @@ pub static BUILTINS: LazyLock<HashMap<&'static str, Builtin>> = LazyLock::new(||
         builtin! {
             fn disp(machine, value: any) as disp {
                 machine.world.disp(&value);
-                Ok(value.clone())
+                Ok(value)
             }
         },
         builtin! {
             macro quote(_machine, thing: any) as q {
-                Ok(thing.clone())
+                Ok(thing)
             }
         },
         builtin! {
             tce macro if(machine, tce_active, condition: any, if_truthy: any, if_falsy: any) as i {
-                let selected_branch = if machine.eval(condition.clone())?.truthy() {
+                let selected_branch = if machine.eval(&condition)?.truthy() {
                     if_truthy
                 } else {
                     if_falsy
                 };
                 if tce_active {
-                    Ok(selected_branch.clone())
+                    Ok(selected_branch)
                 } else {
-                    machine.eval(selected_branch.clone())
+                    machine.eval(&selected_branch)
                 }
             }
         },
@@ -244,7 +244,7 @@ pub static BUILTINS: LazyLock<HashMap<&'static str, Builtin>> = LazyLock::new(||
                 let name = name.0;
                 match machine.scope.global_lookup(&name) {
                     None => {
-                        let new_value = machine.eval(new_value.clone())?;
+                        let new_value = machine.eval(&new_value)?;
                         machine.scope.insert(name, new_value);
                         Ok(name_raw.clone())
                     }
@@ -359,9 +359,9 @@ mod test {
         let mut machine = dummy_machine();
         let parsed = parse_value!(machine, "(d the_answer 42)");
 
-        assert_eq!(machine.eval(parsed), Ok(machine.create_name("the_answer")),);
+        assert_eq!(machine.eval(&parsed), Ok(machine.create_name("the_answer")),);
         assert_eq!(
-            machine.eval(machine.create_name("the_answer")),
+            machine.eval(&machine.create_name("the_answer")),
             Ok(42.into())
         );
     }

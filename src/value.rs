@@ -180,7 +180,7 @@ impl FromIterator<Value> for List {
         };
         let mut node = &mut root_node;
 
-        for item in iter.into_iter() {
+        for item in iter {
             let SpicyList::Cons(_, ref mut ptr) = node else {
                 unreachable!()
             };

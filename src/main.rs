@@ -56,7 +56,7 @@ fn repl() -> Result<(), Box<dyn Error>> {
                     continue;
                 }
                 match parse_expression(&line) {
-                    Ok(expression) => match machine.eval(machine.hydrate(expression)) {
+                    Ok(expression) => match machine.eval(&machine.hydrate(expression)) {
                         Ok(value) => {
                             println!("{}", value);
                         }
@@ -94,7 +94,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
             let mut machine = Machine::with_default_loaders(ConsoleWorld);
             for expression in parsed {
-                match machine.eval(machine.hydrate(expression)) {
+                match machine.eval(&machine.hydrate(expression)) {
                     Ok(value) => println!("{}", value),
                     Err(err) => {
                         println!("error!! {}", err);

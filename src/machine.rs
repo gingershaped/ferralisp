@@ -194,7 +194,7 @@ impl Machine {
                             path,
                         });
                         for value in values {
-                            self.eval(value).map_err(|source| {
+                            self.eval(&value).map_err(|source| {
                                 let path = self
                                     .module_origins
                                     .pop()
@@ -236,7 +236,7 @@ impl Machine {
     fn evaluate_args(&mut self, arguments: &List) -> Result<List, Error> {
         arguments
             .into_iter()
-            .map(|value| self.eval(value.clone()))
+            .map(|value| self.eval(value))
             .collect::<Result<_, _>>()
     }
 
@@ -376,7 +376,7 @@ impl Machine {
             let mut body = call_info.body.clone();
             while let Value::List(ref body_inner) = body {
                 if let List::Cons(head, tail) = body_inner.as_ref() {
-                    let head = self.eval(head.clone())?;
+                    let head = self.eval(head)?;
                     if let Value::Builtin(builtin) = head {
                         if builtin.eval_during_tce {
                             body = (builtin.body)(tail, self, true)?;
@@ -389,7 +389,7 @@ impl Machine {
 
             if let Value::List(ref body) = body {
                 if let List::Cons(head, tail) = body.as_ref() {
-                    let head = self.eval(head.clone())?;
+                    let head = self.eval(head)?;
                     if matches!(head, Value::List(_)) {
                         call_info = self.call_information(&head, tail.as_ref().clone())?;
                         scope.clear();
@@ -398,23 +398,23 @@ impl Machine {
                 }
             }
 
-            return self.eval(body);
+            return self.eval(&body);
         }
     }
 
     /// evaluate a value as described in the tinylisp spec
     #[instrument(skip(self), ret)]
-    pub fn eval(&mut self, value: Value) -> ValueResult {
+    pub fn eval(&mut self, value: &Value) -> ValueResult {
         match value {
             Value::List(ref contents) => {
                 match contents.as_ref() {
                     // nil evaluates to itself
-                    List::Nil => Ok(value),
+                    List::Nil => Ok(value.clone()),
                     // otherwise it's a function call
                     List::Cons(target, args) => {
                         let mut args = args.as_ref().clone();
                         trace!("attempting to invoke {} with raw_args {:?}", target, &args);
-                        let target = self.eval(target.clone())?;
+                        let target = self.eval(target)?;
                         match target {
                             Value::List(_) => self.call(&target, args),
                             Value::Builtin(builtin) => {
@@ -436,10 +436,9 @@ impl Machine {
                     }
                 }
             }
-            // no need to increment the refcount here
-            Value::Builtin(_) => Ok(value),
-            Value::Integer(_) => Ok(value),
-            Value::Name((name, _)) => self.scope.lookup(&name),
+            Value::Builtin(v) => Ok(Value::Builtin(*v)),
+            Value::Integer(v) => Ok(Value::Integer(*v)),
+            Value::Name((name, _)) => self.scope.lookup(name),
         }
     }
 }

@@ -42,7 +42,7 @@ macro_rules! assert_eval {
         let parsed = $crate::parse_value!(machine, $input);
         
         assert_eq!(
-            machine.eval(parsed),
+            machine.eval(&parsed),
             Ok($crate::parse_value!(machine, $output)),
         )
     };

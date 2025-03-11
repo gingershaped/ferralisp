@@ -25,7 +25,7 @@ macro_rules! tl_test {
                 let EitherOrBoth::Both(input, output_str) = item else {
                     panic!("input and output are not the same length");
                 };
-                let output_value = machine.eval(input).expect("evaluation failed");
+                let output_value = machine.eval(&input).expect("evaluation failed");
                 assert_eq!(format!("{}", output_value), output_str);
             }
         }
