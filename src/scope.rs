@@ -7,7 +7,6 @@ use std::{
 };
 
 use intmap::IntMap;
-use tracing::trace;
 
 use crate::{
     builtins::BUILTINS,
@@ -39,7 +38,6 @@ impl LocalScope {
 
 impl Drop for LocalScope {
     fn drop(&mut self) {
-        trace!("popping local scope");
         self.locals.borrow_mut().pop();
     }
 }
@@ -90,12 +88,10 @@ impl GlobalScope {
     }
 
     pub fn insert(&mut self, key: HashlessSpur, value: Value) {
-        trace!("defining new global {} = {:?}", key.into_inner(), value);
         self.globals.insert(key, value);
     }
 
     pub fn local(&self) -> LocalScope {
-        trace!("pushing local scope");
         self.locals.borrow_mut().push(IntMap::default());
         LocalScope {
             locals: self.locals.clone(),
@@ -109,11 +105,6 @@ impl GlobalScope {
             .and_then(|scope| scope.get(*name))
             .or_else(|| self.globals.get(*name))
             .ok_or_else(|| {
-                trace!(
-                    "failed to look up name {}! current scopes: {}",
-                    name.into_inner(),
-                    self
-                );
                 Error::UndefinedName(
                     self.interner
                         .borrow_mut()

@@ -6,7 +6,6 @@ use itertools::{EitherOrBoth, Itertools};
 use lasso::Rodeo;
 use refpool::Pool;
 use thiserror::Error;
-use tracing::{error, instrument, trace};
 
 use crate::{
     loaders::{FileLoader, StdlibLoader},
@@ -376,7 +375,6 @@ impl Machine {
     /// will be optimized into a loop, allowing them to recurse infinitely without overflowing the Rust
     /// call stack. certain builtins (those marked as `tce` in `builtins.rs`) may also be used
     /// without disabling this optimization.
-    #[instrument(ret)]
     #[inline(always)]
     fn call(&mut self, call_target: &Value, raw_args: &NodePtr) -> ValueResult {
         // all of this is mutable so TCE can update it
@@ -386,7 +384,6 @@ impl Machine {
         let mut body;
 
         loop {
-            trace!("current call information: {:?}", call_info);
             // bind argument values to their names in the local scope
             match call_info.argument_names {
                 ArgumentNames::NAdic(ref names) => {
@@ -435,7 +432,6 @@ impl Machine {
                     );
                 }
             }
-            trace!("local scope: {}", scope);
 
             body = call_info.body.clone();
             while let Value::List(ref body_inner) = body {
@@ -467,7 +463,6 @@ impl Machine {
     }
 
     /// evaluate a value as described in the tinylisp spec
-    #[instrument(skip(self), ret)]
     pub fn eval(&mut self, value: &Value) -> ValueResult {
         match value {
             Value::List(ref contents) => {
