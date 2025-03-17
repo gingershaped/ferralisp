@@ -3,20 +3,17 @@
 
 use std::{collections::HashMap, sync::LazyLock};
 
-use refpool::PoolRef;
-
 use crate::{
     machine::{Error, Machine, ValueResult},
-    value::{List, Value},
+    value::{NodePtr, Value},
 };
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub struct Builtin {
-    pub name: &'static str,
     pub is_macro: bool,
     pub eval_during_tce: bool,
     pub(crate) inlined: bool,
-    pub body: fn(&List, &mut Machine, bool) -> ValueResult,
+    pub body: fn(&NodePtr, &mut Machine, bool) -> ValueResult,
 }
 
 macro_rules! builtin {
@@ -45,26 +42,24 @@ macro_rules! builtin {
 macro_rules! builtin_inner {
     ($alias:ident, $name:ident, $is_macro:literal, $machine:ident, ($($arg:tt)*), $body:block) => {
         (stringify!($alias), Builtin {
-            name: stringify!($name),
             is_macro: $is_macro,
             eval_during_tce: false,
             inlined: false,
             #[allow(unused_variables, unused_mut)]
             body: |args, $machine, _| {
-                builtin_arguments!($alias, args, ($($arg)*));
+                builtin_arguments!($alias, args, $machine, ($($arg)*));
                 $body
             }
         })
     };
     ($alias:ident, $name:ident, $is_macro:literal, $machine:ident, $tce_active:ident, ($($arg:tt)*), $body:block) => {
         (stringify!($alias), Builtin {
-            name: stringify!($name),
             is_macro: $is_macro,
             eval_during_tce: true,
             inlined: false,
             #[allow(unused_variables)]
             body: |args, $machine, $tce_active| {
-                builtin_arguments!($alias, args, ($($arg)*));
+                builtin_arguments!($alias, args, $machine, ($($arg)*));
                 $body
             }
         })
@@ -72,36 +67,36 @@ macro_rules! builtin_inner {
 }
 
 macro_rules! builtin_arguments {
-    ($alias:ident, $args:ident, (*$varargs:ident)) => {
+    ($alias:ident, $args:ident, $machine:ident, (*$varargs:ident)) => {
         let $varargs = $args;
     };
-    ($alias:ident, $args:ident, ($($argname:tt: $argtype:tt),*)) => {
+    ($alias:ident, $args:ident, $machine:ident, ($($argname:tt: $argtype:tt),*)) => {
         let mut $args = $args.into_iter();
-        $(builtin_argument!($alias, $args, $argname: $argtype);)*
+        $(builtin_argument!($alias, $args, $machine, $argname: $argtype);)*
         if let Some(value) = $args.next() {
             let mut arguments = vec![value.clone()];
             arguments.extend($args.cloned());
             return Err(Error::ExtraArguments {
-                call_target: Value::Builtin(crate::builtins::BUILTINS[stringify!($alias)]),
-                arguments,
+                call_target: Value::Builtin(crate::builtins::BUILTINS[stringify!($alias)]).contextualize($machine),
+                arguments: arguments.iter().map(|v| v.contextualize($machine)).collect(),
             })
         }
     };
 }
 
 macro_rules! builtin_argument {
-    ($alias:ident, $args:ident, $name:ident: any) => {
+    ($alias:ident, $args:ident, $machine:ident, $name:ident: any) => {
         #[allow(unused_mut)]
         let mut $name = $args
             .next()
             .cloned()
             .ok_or_else(|| Error::MissingArgument {
                 name: Some(stringify!($name).to_string()),
-                call_target: Value::Builtin(crate::builtins::BUILTINS[stringify!($alias)]),
+                call_target: Value::Builtin(crate::builtins::BUILTINS[stringify!($alias)]).contextualize($machine),
                 expected_type: Some("any".to_string()),
             })?;
     };
-    ($alias:ident, $args:ident, $name:ident: $argtype:path) => {
+    ($alias:ident, $args:ident, $machine:ident, $name:ident: $argtype:path) => {
         #[allow(unused_imports)]
         use Value::*;
         let arg = $args.next();
@@ -113,17 +108,17 @@ macro_rules! builtin_argument {
                     alias: stringify!($alias),
                     name: stringify!($name),
                     expected_type: stringify!($argtype),
-                    value: other.clone(),
+                    value: other.contextualize($machine),
                 }),
             },
             None => Err(Error::MissingArgument {
                 name: Some(stringify!($name).to_owned()),
-                call_target: Value::Builtin(crate::builtins::BUILTINS[stringify!($alias)]),
+                call_target: Value::Builtin(crate::builtins::BUILTINS[stringify!($alias)]).contextualize($machine),
                 expected_type: Some(stringify!($argtype).to_owned()),
             }),
         }?;
     };
-    ($alias:ident, $args:ident, ($raw:ident -> $name:ident): $argtype:path) => {
+    ($alias:ident, $args:ident, $machine:ident, ($raw:ident -> $name:ident): $argtype:path) => {
         #[allow(unused_imports)]
         use Value::*;
         let arg = $args.next().cloned();
@@ -135,12 +130,12 @@ macro_rules! builtin_argument {
                     alias: stringify!($alias),
                     name: stringify!($name),
                     expected_type: stringify!($argtype),
-                    value: other.clone(),
+                    value: other.contextualize($machine),
                 }),
             },
             None => Err(Error::MissingArgument {
                 name: Some(stringify!($name).to_owned()),
-                call_target: Value::Builtin(crate::builtins::BUILTINS[stringify!($alias)]),
+                call_target: Value::Builtin(crate::builtins::BUILTINS[stringify!($alias)]).contextualize($machine),
                 expected_type: Some(stringify!($argtype).to_owned()),
             }),
         }?;
@@ -151,17 +146,17 @@ pub static BUILTINS: LazyLock<HashMap<&'static str, Builtin>> = LazyLock::new(||
     HashMap::from([
         builtin! {
             fn cons(machine, value: any, list: List) as c {
-                Ok(List(PoolRef::new(&machine.pool, crate::value::List::Cons(value, list.clone()))))
+                Ok(List(list.cons(&machine.pool, value)))
             }
         },
         builtin! {
-            fn head(machine, value: List) as h {
-                Ok(value.head().cloned().unwrap_or(Value::nil(&machine.pool)))
+            fn head(_machine, value: List) as h {
+                Ok(value.head().cloned().unwrap_or(Value::nil()))
             }
         },
         builtin! {
-            fn tail(machine, value: List) as t {
-                Ok(value.tail().map(List).unwrap_or(Value::nil(&machine.pool)))
+            fn tail(_machine, value: List) as t {
+                Ok(value.tail().map(List).unwrap_or(Value::nil()))
             }
         },
         builtin! {
@@ -197,7 +192,7 @@ pub static BUILTINS: LazyLock<HashMap<&'static str, Builtin>> = LazyLock::new(||
                         if let Value::Integer(value) = value {
                             char::from_u32(*value as u32).ok_or_else(|| Error::BuiltinError(format!("invalid character value {}", value)))
                         } else {
-                            Err(Error::BuiltinError(format!("non-integer value {} supplied", value)))
+                            Err(Error::BuiltinError(format!("non-integer value {} supplied", value.contextualize(machine))))
                         }
                     })
                     .collect::<Result<Vec<_>, _>>()?
@@ -207,9 +202,7 @@ pub static BUILTINS: LazyLock<HashMap<&'static str, Builtin>> = LazyLock::new(||
         },
         builtin! {
             fn chars(machine, name: Name) as chars {
-                let interner = name.1.upgrade().expect("unbound name passed to (chars)");
-                let interner = interner.borrow();
-                let name = interner.resolve(&name.0);
+                let name = machine.resolve_name(&name).expect("unbound name passed to (chars)");
                 Ok(Value::from_iter(&machine.pool, name.chars().map(|char| Value::Integer(char as i64))))
             }
         },
@@ -225,7 +218,7 @@ pub static BUILTINS: LazyLock<HashMap<&'static str, Builtin>> = LazyLock::new(||
         },
         builtin! {
             fn disp(machine, value: any) as disp {
-                machine.world.disp(&value);
+                machine.world.disp(machine, &value);
                 Ok(value)
             }
         },
@@ -250,19 +243,17 @@ pub static BUILTINS: LazyLock<HashMap<&'static str, Builtin>> = LazyLock::new(||
         },
         builtin! {
             macro def(machine, (name_raw -> name): Name, new_value: any) as d {
-                let interner = name.1.upgrade().expect("unbound name passed to (d)");
-                let name = name.0;
                 match machine.scope.global_lookup(&name) {
                     None => {
                         let new_value = machine.eval(&new_value)?;
-                        machine.scope.insert(name, new_value);
+                        machine.scope.insert(*name, new_value);
                         Ok(name_raw.clone())
                     }
                     Some(current_value) => {
                         Err(Error::DefinedName {
-                            name: interner.borrow().try_resolve(&name).map(|v| v.to_owned()),
-                            current_value: current_value.clone(),
-                            new_value: new_value.clone()
+                            name: machine.resolve_name(&name),
+                            current_value: current_value.contextualize(machine),
+                            new_value: new_value.contextualize(machine)
                         })
                     }
                 }
@@ -270,17 +261,13 @@ pub static BUILTINS: LazyLock<HashMap<&'static str, Builtin>> = LazyLock::new(||
         },
         builtin! {
             macro load(machine, path: Name) as load {
-                let interner = path.1.upgrade().expect("unbound name passed to (chars)");
-                let path = {
-                    let interner = interner.borrow();
-                    interner.resolve(&path.0).to_owned()
-                };
+                let path = machine.resolve_name(path).expect("unbound name passed to (load)");
                 machine.load(path)
             }
         },
         builtin! {
-            macro comment(machine, *args) as comment {
-                Ok(Value::nil(&machine.pool))
+            macro comment(_machine, *args) as comment {
+                Ok(Value::nil())
             }
         },
     ])

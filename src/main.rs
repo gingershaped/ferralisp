@@ -53,8 +53,8 @@ impl Source {
 
 struct ConsoleWorld;
 impl World for ConsoleWorld {
-    fn disp(&self, value: &Value) {
-        println!("{}", value);
+    fn disp(&self, machine: &Machine, value: &Value) {
+        println!("{}", value.contextualize(machine));
     }
 }
 
@@ -72,7 +72,7 @@ fn repl(args: Cli) -> Result<(), Box<dyn Error>> {
                 match parse_expression(&line) {
                     Ok(expression) => match machine.eval(&machine.hydrate(expression)) {
                         Ok(value) => {
-                            println!("{}", value);
+                            println!("{}", value.contextualize(&machine));
                         }
                         Err(error) => {
                             println!("{}: {}", "error!!".bold().red(), error);
@@ -109,7 +109,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             let mut machine = Machine::with_default_loaders(ConsoleWorld, args.optimizations);
             for expression in parsed {
                 match machine.eval(&machine.hydrate(expression)) {
-                    Ok(value) => println!("{}", value),
+                    Ok(value) => println!("{}", value.contextualize(&machine)),
                     Err(err) => {
                         println!("error!! {}", err);
                         break;

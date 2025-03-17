@@ -25,7 +25,7 @@ macro_rules! tl_test {
                     panic!("input and output are not the same length");
                 };
                 let output_value = machine.eval(&input).expect("evaluation failed");
-                assert_eq!(format!("{}", output_value), output_str);
+                assert_eq!(format!("{}", output_value.contextualize(&machine)), output_str);
             }
         }
     };

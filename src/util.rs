@@ -5,7 +5,7 @@ use crate::{
 
 pub struct DummyWorld;
 impl World for DummyWorld {
-    fn disp(&self, _: &Value) {}
+    fn disp(&self, _: &Machine, _: &Value) {}
 }
 
 pub fn dummy_machine() -> Machine {
@@ -29,7 +29,7 @@ macro_rules! parse_list {
         if let $crate::value::Value::List(list) =
             $machine.hydrate($crate::parser::parse_expression($code).unwrap())
         {
-            refpool::PoolRef::try_unwrap(list).unwrap()
+            list
         } else {
             unreachable!()
         }

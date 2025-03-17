@@ -11,22 +11,29 @@ use std::{
     fmt::{Debug, Display},
     mem::MaybeUninit,
     num::NonZero,
-    rc::Weak,
+    ops::Deref,
+    rc::{Rc, Weak},
 };
 
 use lasso::MiniSpur;
 use refpool::{Pool, PoolDefault, PoolRef};
 use strum_macros::IntoStaticStr;
 
-use crate::{builtins::Builtin, machine::Interner};
+use crate::{
+    builtins::Builtin,
+    machine::{Interner, Machine},
+};
 
-#[derive(Clone, IntoStaticStr)]
+trait DisplayWithContext {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>, interner: Option<&Rc<Interner>>) -> std::fmt::Result;
+}
+
+#[derive(Clone, IntoStaticStr, PartialEq)]
 pub enum Value {
-    List(PoolRef<List>),
-    // boolean flag for if this builtin was inlined from a name by Machine::hydrate()
+    List(NodePtr),
     Builtin(Builtin),
     Integer(i64),
-    Name((HashlessMiniSpur, Weak<Interner>)),
+    Name(HashlessMiniSpur),
 }
 
 impl Value {
@@ -38,45 +45,41 @@ impl Value {
         }
     }
 
-    pub fn nil(pool: &Pool<List>) -> Value {
-        Value::List(PoolRef::default(pool))
+    pub const fn nil() -> Value {
+        Value::List(NodePtr::NIL)
     }
 
-    pub fn from_iter<T: IntoIterator<Item = Value>>(pool: &Pool<List>, iter: T) -> Self {
-        Value::List(PoolRef::new(pool, List::from_iter(pool, iter)))
+    pub fn from_iter<T: IntoIterator<Item = Value>>(pool: &Pool<Node>, iter: T) -> Self {
+        Value::List(NodePtr::from_iter(pool, iter))
     }
-}
 
-impl PartialEq for Value {
-    fn eq(&self, other: &Self) -> bool {
-        match (self, other) {
-            (Self::List(l0), Self::List(r0)) => l0 == r0,
-            (Self::Builtin(l0), Self::Builtin(r0)) => l0 == r0,
-            (Self::Integer(l0), Self::Integer(r0)) => l0 == r0,
-            (Self::Name((l0, _)), Self::Name((r0, _))) => l0 == r0,
-            _ => false,
+    pub fn contextualize(&self, machine: &Machine) -> ContextValue {
+        ContextValue {
+            value: self.clone(),
+            interner: Rc::downgrade(&machine.interner),
         }
     }
+
 }
 
-impl Debug for Value {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl DisplayWithContext for Value {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>, interner: Option<&Rc<Interner>>) -> std::fmt::Result {
         match self {
-            Value::List(values) => Debug::fmt(values, f),
+            Value::List(values) => DisplayWithContext::fmt(values, f, interner),
             Value::Builtin(builtin) => {
                 write!(
                     f,
-                    "<builtin {} \"{}\">",
+                    "<builtin {} at {:p}>",
                     if builtin.is_macro {
                         "macro"
                     } else {
                         "function"
                     },
-                    builtin.name
+                    builtin.body
                 )
             }
             Value::Integer(value) => write!(f, "{}", value),
-            Value::Name((name, interner)) => match interner.upgrade() {
+            Value::Name(name) => match interner {
                 Some(interner) => match interner.borrow().try_resolve(name) {
                     Some(name) => write!(f, "{}", name),
                     None => write!(f, "<invalid key {}>", name.into_inner()),
@@ -87,9 +90,9 @@ impl Debug for Value {
     }
 }
 
-impl Display for Value {
+impl Debug for Value {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        Debug::fmt(self, f)
+        DisplayWithContext::fmt(self, f, None)
     }
 }
 
@@ -101,43 +104,87 @@ impl From<i64> for Value {
 
 impl From<HashlessMiniSpur> for Value {
     fn from(value: HashlessMiniSpur) -> Self {
-        Value::Name((value, Weak::new()))
+        Value::Name(value)
     }
 }
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone)]
+pub struct ContextValue {
+    value: Value,
+    interner: Weak<Interner>,
+}
+
+impl Deref for ContextValue {
+    type Target = Value;
+
+    fn deref(&self) -> &Self::Target {
+        &self.value
+    }
+}
+
+impl Display for ContextValue {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        DisplayWithContext::fmt(&**self, f, self.interner.upgrade().as_ref())
+    }
+}
+
+impl Debug for ContextValue {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        Display::fmt(self, f)
+    }
+}
+
+impl PartialEq for ContextValue {
+    fn eq(&self, other: &Self) -> bool {
+        self.value == other.value
+    }
+}
+
+#[derive(Clone, Default, PartialEq)]
+#[repr(transparent)]
+pub struct NodePtr(Option<PoolRef<Node>>);
+
 #[repr(C)]
-#[derive(Default)]
-pub enum List {
-    Cons(Value, PoolRef<List>),
-    #[default]
-    Nil,
+#[derive(Debug, Clone, PartialEq)]
+pub struct Node {
+    value: Value,
+    next: NodePtr,
 }
 
-impl List {
+impl NodePtr {
+    pub const NIL: NodePtr = NodePtr(None);
+
     pub fn head(&self) -> Option<&Value> {
-        match self {
-            List::Cons(value, _) => Some(value),
-            List::Nil => None,
+        match &self.0 {
+            Some(node) => Some(&node.value),
+            None => None,
         }
     }
 
-    pub fn tail(&self) -> Option<PoolRef<List>> {
-        match self {
-            List::Cons(_, tail) => Some(tail.clone()),
-            List::Nil => None,
+    pub fn tail(&self) -> Option<NodePtr> {
+        match &self.0 {
+            Some(node) => Some(node.next.clone()),
+            None => None,
         }
     }
 
-    pub fn divide(&self) -> Option<(&Value, PoolRef<List>)> {
-        match self {
-            List::Cons(head, tail) => Some((head, tail.clone())),
-            List::Nil => None,
+    pub fn divide<'a>(&'a self) -> Option<(&'a Value, &'a NodePtr)> {
+        match &self.0 {
+            Some(node) => Some((&node.value, &node.next)),
+            None => None,
         }
+    }
+
+    pub fn cons(&self, pool: &Pool<Node>, value: Value) -> NodePtr {
+        let node = Node {
+            value,
+            next: self.clone(),
+        };
+        NodePtr(Some(PoolRef::new(pool, node)))
     }
 
     pub fn is_nil(&self) -> bool {
-        matches!(self, List::Nil)
+        matches!(self.0, None)
     }
 
     pub fn iter(&self) -> ListIterator {
@@ -145,21 +192,20 @@ impl List {
     }
 }
 
-
-impl PoolDefault for List {
+impl PoolDefault for NodePtr {
     unsafe fn default_uninit(target: &mut MaybeUninit<Self>) {
-        target.write(List::Nil);
+        target.write(NodePtr(None));
     }
 }
 
-pub struct ListIterator<'a>(Option<&'a List>);
+pub struct ListIterator<'a>(Option<&'a Node>);
 
-impl<'a> IntoIterator for &'a List {
+impl<'a> IntoIterator for &'a NodePtr {
     type Item = &'a Value;
     type IntoIter = ListIterator<'a>;
 
     fn into_iter(self) -> Self::IntoIter {
-        ListIterator(Some(self))
+        ListIterator(self.0.as_deref())
     }
 }
 
@@ -168,86 +214,22 @@ impl<'a> Iterator for ListIterator<'a> {
 
     fn next(&mut self) -> Option<Self::Item> {
         match self.0.take() {
-            Some(List::Cons(value, list)) => {
-                self.0 = Some(list.as_ref());
-                Some(value)
+            Some(node) => {
+                self.0 = node.next.0.as_deref();
+                Some(&node.value)
             }
             _ => None,
         }
     }
 }
 
-// this MUST have the same memory layout as List
-#[repr(C)]
-pub enum SpicyList {
-    Cons(Value, PoolRef<MaybeUninit<SpicyList>>),
-    Nil,
-}
-
-impl List {
-    pub fn from_iter<T: IntoIterator<Item = Value>>(pool: &Pool<List>, iter: T) -> Self {
-        unsafe {
-            // SAFETY: unwrap_unchecked() can never fail
-            Self::try_from_iter(pool, iter.into_iter().map(Ok::<Value, Infallible>))
-                .unwrap_unchecked()
-        }
-    }
-
-    pub fn try_from_iter<E, T: IntoIterator<Item = Result<Value, E>>>(
-        pool: &Pool<List>,
-        iter: T,
-    ) -> Result<Self, E> {
-        let pool: Pool<MaybeUninit<SpicyList>> = pool.cast();
-        let mut iter = iter.into_iter();
-        let mut root_node = if let Some(first) = iter.next() {
-            SpicyList::Cons(first?, PoolRef::new(&pool, MaybeUninit::uninit()))
-        } else {
-            return Ok(List::Nil);
-        };
-        let mut node = &mut root_node;
-
-        for item in iter {
-            match item {
-                Ok(item) => {
-                    let SpicyList::Cons(_, ref mut ptr) = node else {
-                        unreachable!()
-                    };
-                    let next_node =
-                        SpicyList::Cons(item, PoolRef::new(&pool, MaybeUninit::uninit()));
-                    node = PoolRef::get_mut(ptr).unwrap().write(next_node);
-                }
-                Err(err) => {
-                    // returning at this point will drop any PoolRefs which have been created,
-                    // returning them to the pool. one of them will have a MaybeUninit
-                    // pointing to uninitialized data, but dropping it doesn't do anything, and
-                    // the data it points to will then be correctly marked as uninitialized by the pool
-                    // (which changes nothing, since it was never initialized in the first place).
-                    return Err(err);
-                }
-            }
-        }
-
-        // set the pointer of the last node to Nil
-        let SpicyList::Cons(_, ref mut ptr) = node else {
-            unreachable!()
-        };
-        PoolRef::get_mut(ptr).unwrap().write(SpicyList::Nil);
-
-        unsafe {
-            // SAFETY: SpicyList and List have the same memory layout,
-            // and root_node is now fully initialized
-            Ok(std::mem::transmute::<SpicyList, List>(root_node))
-        }
-    }
-}
-
-impl Debug for List {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl DisplayWithContext for NodePtr {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>, interner: Option<&Rc<Interner>>) -> std::fmt::Result {
         write!(f, "(")?;
         let mut iter = self.iter();
         let mut item = iter.next();
         while let Some(value) = item {
-            Debug::fmt(value, f)?;
+            DisplayWithContext::fmt(value, f, interner)?;
             item = iter.next();
             if item.is_some() {
                 write!(f, " ")?;
@@ -255,6 +237,70 @@ impl Debug for List {
         }
         write!(f, ")")?;
         Ok(())
+    }
+}
+
+impl Debug for NodePtr {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        DisplayWithContext::fmt(self, f, None)
+    }
+}
+
+#[repr(C)]
+pub struct UninitNode {
+    value: Value,
+    next: Option<PoolRef<MaybeUninit<UninitNode>>>,
+}
+
+impl NodePtr {
+    pub fn from_iter<T: IntoIterator<Item = Value>>(pool: &Pool<Node>, iter: T) -> Self {
+        let Ok(list) = Self::try_from_iter(pool, iter.into_iter().map(Ok::<Value, Infallible>));
+        list
+    }
+
+    pub fn try_from_iter<E, T: IntoIterator<Item = Result<Value, E>>>(
+        pool: &Pool<Node>,
+        iter: T,
+    ) -> Result<Self, E> {
+        let pool: Pool<MaybeUninit<UninitNode>> = pool.cast();
+        let mut iter = iter.into_iter();
+        let mut root_node = if let Some(first) = iter.next() {
+            UninitNode {
+                value: first?,
+                next: Some(PoolRef::new(&pool, MaybeUninit::uninit())),
+            }
+        } else {
+            return Ok(NodePtr::NIL);
+        };
+        let mut node = &mut root_node;
+
+        for item in iter {
+            match item {
+                Ok(value) => {
+                    let Some(ref mut ptr) = node.next else {
+                        unreachable!()
+                    };
+                    let next_node = UninitNode {
+                        value,
+                        next: Some(PoolRef::new(&pool, MaybeUninit::uninit())),
+                    };
+                    node = PoolRef::get_mut(ptr).unwrap().write(next_node);
+                }
+                Err(err) => {
+                    return Err(err);
+                }
+            }
+        }
+
+        node.next = None;
+
+        let root_node = unsafe {
+            // SAFETY: UninitNode and Node have the same memory layout,
+            // and root_node is now fully initialized
+            std::mem::transmute::<UninitNode, Node>(root_node)
+        };
+
+        Ok(NodePtr(Some(PoolRef::new(&pool.cast(), root_node))))
     }
 }
 
@@ -302,41 +348,52 @@ impl Debug for HashlessMiniSpur {
 mod test {
     use refpool::{Pool, PoolRef};
 
-    use super::List;
+    use super::{Node, NodePtr};
 
     #[test]
     fn list_ops() {
         let pool = Pool::new(0);
 
-        let test_list = List::Cons(
-            1.into(),
-            PoolRef::new(
-                &pool,
-                List::Cons(
-                    2.into(),
-                    PoolRef::new(&pool, List::Cons(3.into(), PoolRef::default(&pool))),
-                ),
-            ),
-        );
-        let head = &1.into();
-        let tail = PoolRef::new(
+        let test_list = NodePtr(Some(PoolRef::new(
             &pool,
-            List::Cons(
-                2.into(),
-                PoolRef::new(&pool, List::Cons(3.into(), PoolRef::default(&pool))),
-            ),
-        );
+            Node {
+                value: 1.into(),
+                next: NodePtr(Some(PoolRef::new(
+                    &pool,
+                    Node {
+                        value: 2.into(),
+                        next: NodePtr(Some(PoolRef::new(
+                            &pool,
+                            Node {
+                                value: 3.into(),
+                                next: NodePtr::NIL,
+                            },
+                        ))),
+                    },
+                ))),
+            },
+        )));
+        let head = &1.into();
+        let tail = NodePtr(Some(PoolRef::new(
+            &pool,
+            Node {
+                value: 2.into(),
+                next: NodePtr(Some(PoolRef::new(
+                    &pool,
+                    Node {
+                        value: 3.into(),
+                        next: NodePtr::NIL,
+                    },
+                ))),
+            },
+        )));
 
         assert_eq!(test_list.head(), Some(head));
         assert_eq!(test_list.tail(), Some(tail.clone()));
-        assert_eq!(test_list.divide(), Some((head, tail)));
+        assert_eq!(test_list.divide(), Some((head, &tail)));
         assert_eq!(
-            List::from_iter(&pool, vec![1.into(), 2.into(), 3.into()]),
+            NodePtr::from_iter(&pool, vec![1.into(), 2.into(), 3.into()]),
             test_list
         );
-        println!(
-            "{:?}",
-            List::from_iter(&pool, vec![1.into(), 2.into(), 3.into()])
-        )
     }
 }

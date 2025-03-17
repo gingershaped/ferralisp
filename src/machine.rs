@@ -4,7 +4,7 @@ use std::{borrow::Cow, cell::RefCell, collections::HashSet, env::current_dir, fm
 
 use itertools::{EitherOrBoth, Itertools};
 use lasso::Rodeo;
-use refpool::{Pool, PoolRef};
+use refpool::Pool;
 use thiserror::Error;
 use tracing::{error, instrument, trace};
 
@@ -13,7 +13,7 @@ use crate::{
     parser::Expression,
     scope::GlobalScope,
     util::or_fallback,
-    value::{HashlessMiniSpur, List, Value},
+    value::{ContextValue, HashlessMiniSpur, Node, NodePtr, Value},
 };
 
 #[derive(Error, Debug, PartialEq)]
@@ -23,33 +23,33 @@ pub enum Error {
     #[error("name {name} may not be redefined to {new_value}, it is already defined as {current_value}", name = or_fallback(name))]
     DefinedName {
         name: Option<String>,
-        current_value: Value,
-        new_value: Value,
+        current_value: ContextValue,
+        new_value: ContextValue,
     },
     #[error("cannot call value {0} because it is not a list or a builtin")]
-    UncallableValue(Value),
+    UncallableValue(ContextValue),
     #[error("list {value} is not a correctly structured function or macro because: {reason}")]
-    MalformedFunction { value: Value, reason: &'static str },
+    MalformedFunction { value: ContextValue, reason: &'static str },
     #[error("missing argument {argument} while calling {call_target}", argument = match .expected_type {
         Some(expected_type) => format!("{} of type {}", or_fallback(.name), expected_type),
         None => or_fallback(.name).to_owned(),
     })]
     MissingArgument {
         name: Option<String>,
-        call_target: Value,
+        call_target: ContextValue,
         expected_type: Option<String>,
     },
     #[error("extra arguments [{arguments}] supplied while calling {call_target}", arguments = .arguments.iter().join(", "))]
     ExtraArguments {
-        call_target: Value,
-        arguments: Vec<Value>,
+        call_target: ContextValue,
+        arguments: Vec<ContextValue>,
     },
     #[error("wrong argument type passed to argument {name} of function {alias}: expected a {expected_type} but got a value {value}")]
     WrongBuiltinArgumentType {
         alias: &'static str,
         name: &'static str,
         expected_type: &'static str,
-        value: Value,
+        value: ContextValue,
     },
     #[error("builtin error: {0}")]
     BuiltinError(String),
@@ -81,7 +81,7 @@ impl PartialEq for ModuleLoadError {
 pub type ValueResult = Result<Value, Error>;
 
 pub trait World {
-    fn disp(&self, value: &Value);
+    fn disp(&self, machine: &Machine, value: &Value);
 }
 
 impl Debug for dyn World {
@@ -123,7 +123,7 @@ enum ArgumentNames {
 #[derive(Debug, PartialEq)]
 struct CallInformation<'a> {
     argument_names: ArgumentNames,
-    arguments: Cow<'a, List>,
+    arguments: Cow<'a, NodePtr>,
     body: &'a Value,
 }
 
@@ -136,7 +136,7 @@ pub enum OptimizationLevel {
     Normal,
     /// Allows ferralisp to perform arbitrary transformations to your program,
     /// possibly breaking compatibility with the reference interpreter
-    Dangerous
+    Dangerous,
 }
 
 impl Default for OptimizationLevel {
@@ -145,37 +145,43 @@ impl Default for OptimizationLevel {
     }
 }
 
-
 #[derive(Debug)]
 pub struct Machine {
     pub scope: GlobalScope,
     pub(crate) world: Box<dyn World>,
-    pub pool: Pool<List>,
+    pub(crate) interner: Rc<Interner>,
+    pub pool: Pool<Node>,
     pub optimizations: OptimizationLevel,
     loaders: Vec<Box<dyn Loader>>,
     loaded_modules: HashSet<String>,
     module_origins: Vec<ModuleLoad>,
-    interner: Rc<Interner>,
 }
 
 impl Machine {
     const POOL_SIZE: usize = 2_usize.pow(16);
 
-    pub fn new(world: impl World + 'static, loaders: Vec<Box<dyn Loader>>, optimizations: OptimizationLevel) -> Self {
+    pub fn new(
+        world: impl World + 'static,
+        loaders: Vec<Box<dyn Loader>>,
+        optimizations: OptimizationLevel,
+    ) -> Self {
         let interner = Rc::new(RefCell::new(Rodeo::new()));
         Machine {
             scope: GlobalScope::new(interner.clone()),
             world: Box::new(world),
+            interner,
             pool: Pool::new(Self::POOL_SIZE),
             optimizations,
             loaders,
             loaded_modules: HashSet::new(),
             module_origins: vec![],
-            interner,
         }
     }
 
-    pub fn with_default_loaders(world: impl World + 'static, optimizations: OptimizationLevel) -> Self {
+    pub fn with_default_loaders(
+        world: impl World + 'static,
+        optimizations: OptimizationLevel,
+    ) -> Self {
         Self::new(
             world,
             vec![
@@ -184,7 +190,7 @@ impl Machine {
                 )),
                 Box::new(StdlibLoader),
             ],
-            optimizations
+            optimizations,
         )
     }
 
@@ -200,33 +206,33 @@ impl Machine {
             Expression::Name(name) => {
                 let name = self.create_name(name);
                 if self.optimizations >= OptimizationLevel::Dangerous {
-                    let Value::Name((spur, _)) = name else { unreachable!() };
+                    let Value::Name(spur) = name else {
+                        unreachable!()
+                    };
                     match self.scope.global_lookup(&spur) {
                         Some(Value::Builtin(builtin)) => Value::Builtin(*builtin),
-                        _ => name
+                        _ => name,
                     }
                 } else {
                     name
                 }
-            },
-            Expression::List(expressions) => Value::List(PoolRef::new(
+            }
+            Expression::List(expressions) => Value::List(NodePtr::from_iter(
                 &self.pool,
-                List::from_iter(
-                    &self.pool,
-                    expressions
-                        .into_iter()
-                        .map(|expression| self.hydrate(expression)),
-                ),
+                expressions
+                    .into_iter()
+                    .map(|expression| self.hydrate(expression)),
             )),
         }
     }
 
     /// Convert a string slice into a Value by interning it.
     pub fn create_name(&self, string: &str) -> Value {
-        Value::Name((
-            self.interner.borrow_mut().get_or_intern(string),
-            Rc::downgrade(&self.interner),
-        ))
+        Value::Name(self.interner.borrow_mut().get_or_intern(string))
+    }
+
+    pub fn resolve_name(&self, name: &HashlessMiniSpur) -> Option<String> {
+        self.interner.borrow().try_resolve(name).map(|v| v.to_string())
     }
 
     /// Load a module from a path by running it through the machine's loaders.
@@ -261,7 +267,7 @@ impl Machine {
                         if cache {
                             self.loaded_modules.insert(path);
                         }
-                        return Ok(Value::nil(&self.pool));
+                        return Ok(Value::nil());
                     }
                     LoadResult::Err(source) => {
                         return Err(Error::ModuleLoadError(ModuleLoadError {
@@ -277,11 +283,11 @@ impl Machine {
                 loaders: self.loaders.iter().map(|loader| loader.name()).collect(),
             });
         }
-        Ok(Value::nil(&self.pool))
+        Ok(Value::nil())
     }
 
-    fn evaluate_args(&mut self, arguments: &List) -> Result<List, Error> {
-        List::try_from_iter(
+    fn evaluate_args(&mut self, arguments: &NodePtr) -> Result<NodePtr, Error> {
+        NodePtr::try_from_iter(
             // cloning the pool doesn't actually clone its data
             &self.pool.clone(),
             arguments.into_iter().map(|value| self.eval(value)),
@@ -293,54 +299,54 @@ impl Machine {
     fn call_information<'a>(
         &mut self,
         target: &'a Value,
-        raw_arguments: &'a List,
+        raw_arguments: &'a NodePtr,
     ) -> Result<CallInformation<'a>, Error> {
         let mut arguments = Cow::Borrowed(raw_arguments);
         let Value::List(target) = target else {
             return Err(Error::MalformedFunction {
-                value: target.clone(),
+                value: target.contextualize(self),
                 reason: "it is not a list",
             });
         };
-        let (raw_argument_names, body, is_macro) = match target.as_ref() {
-            List::Cons(first, tail) => match tail.as_ref() {
-                List::Cons(second, tail) => match tail.as_ref() {
-                    List::Cons(third, tail) => match tail.as_ref() {
-                        List::Cons(..) => {
+        let (raw_argument_names, body, is_macro) = match target.divide() {
+            Some((first, tail)) => match tail.divide() {
+                Some((second, tail)) => match tail.divide() {
+                    Some((third, tail)) => match tail.divide() {
+                        Some((..)) => {
                             return Err(Error::MalformedFunction {
-                                value: Value::List(target.clone()),
+                                value: Value::List(target.clone()).contextualize(self),
                                 reason: "it is not exactly 2 or 3 items long",
                             })
                         }
-                        List::Nil => (second, third, true),
+                        None => (second, third, true),
                     },
-                    List::Nil => (first, second, false),
+                    None => (first, second, false),
                 },
-                List::Nil => {
+                None => {
                     return Err(Error::MalformedFunction {
-                        value: Value::List(target.clone()),
+                        value: Value::List(target.clone()).contextualize(self),
                         reason: "it is not exactly 2 or 3 items long",
                     })
                 }
             },
-            List::Nil => {
+            None => {
                 return Err(Error::MalformedFunction {
-                    value: Value::List(target.clone()),
+                    value: Value::List(target.clone()).contextualize(self),
                     reason: "it is not exactly 2 or 3 items long",
                 })
             }
         };
         let argument_names = match raw_argument_names {
-            Value::Name((name, _)) => ArgumentNames::Variadic(name.to_owned()),
+            Value::Name(name) => ArgumentNames::Variadic(name.to_owned()),
             Value::List(names) => ArgumentNames::NAdic(
                 names
                     .iter()
                     .map(|value| {
-                        if let Value::Name((name, _)) = value {
+                        if let Value::Name(name) = value {
                             Ok(name.to_owned())
                         } else {
                             Err(Error::MalformedFunction {
-                                value: Value::List(target.clone()),
+                                value: Value::List(target.clone()).contextualize(self),
                                 reason: "an item in the name list is not a name",
                             })
                         }
@@ -349,7 +355,7 @@ impl Machine {
             ),
             _ => {
                 return Err(Error::MalformedFunction {
-                    value: Value::List(target.clone()),
+                    value: Value::List(target.clone()).contextualize(self),
                     reason: "the name list is not a list",
                 })
             }
@@ -371,7 +377,7 @@ impl Machine {
     /// call stack. certain builtins (those marked as `tce` in `builtins.rs`) may also be used
     /// without disabling this optimization.
     #[instrument(ret)]
-    fn call(&mut self, call_target: &Value, raw_args: &List) -> ValueResult {
+    fn call(&mut self, call_target: &Value, raw_args: &NodePtr) -> ValueResult {
         // all of this is mutable so TCE can update it
         let mut call_info = self.call_information(call_target, raw_args)?;
         let mut scope = self.scope.local();
@@ -395,7 +401,7 @@ impl Machine {
                             // an argument is missing
                             EitherOrBoth::Left(name) => {
                                 return Err(Error::MissingArgument {
-                                    call_target: call_target.clone(),
+                                    call_target: call_target.contextualize(self),
                                     name: self
                                         .interner
                                         .borrow()
@@ -407,11 +413,11 @@ impl Machine {
                             // an extra argument was supplied, split off the rest of the argument list
                             EitherOrBoth::Right(_) => {
                                 return Err(Error::ExtraArguments {
-                                    call_target: call_target.clone(),
+                                    call_target: call_target.contextualize(self),
                                     arguments: call_info
                                         .arguments
                                         .into_iter()
-                                        .cloned()
+                                        .map(|v| v.contextualize(self))
                                         .collect::<Vec<_>>()
                                         .split_off(index)
                                         .to_vec(),
@@ -424,7 +430,7 @@ impl Machine {
                     // summon a list from the ether to hold the arguments
                     scope.insert(
                         name,
-                        Value::List(PoolRef::new(&self.pool, call_info.arguments.into_owned())),
+                        Value::List(call_info.arguments.into_owned()),
                     );
                 }
             }
@@ -432,7 +438,7 @@ impl Machine {
 
             body = call_info.body.clone();
             while let Value::List(ref body_inner) = body {
-                if let List::Cons(head, tail) = body_inner.as_ref() {
+                if let Some((head, tail)) = body_inner.divide() {
                     let head = self.eval(head)?;
                     if let Value::Builtin(builtin) = head {
                         if builtin.eval_during_tce {
@@ -445,10 +451,10 @@ impl Machine {
             }
 
             if let Value::List(ref body) = body {
-                if let List::Cons(raw_head, tail) = body.as_ref() {
+                if let Some((raw_head, tail)) = body.divide() {
                     head = self.eval(raw_head)?;
                     if matches!(head, Value::List(_)) {
-                        call_info = self.call_information(&head, tail.as_ref())?;
+                        call_info = self.call_information(&head, tail)?;
                         scope.clear();
                         continue;
                     }
@@ -464,13 +470,12 @@ impl Machine {
     pub fn eval(&mut self, value: &Value) -> ValueResult {
         match value {
             Value::List(ref contents) => {
-                match contents.as_ref() {
+                match contents.divide() {
                     // nil evaluates to itself
-                    List::Nil => Ok(value.clone()),
+                    None => Ok(Value::nil()),
                     // otherwise it's a function call
-                    List::Cons(target, args) => {
-                        let mut args = Cow::Borrowed(args.as_ref());
-                        trace!("attempting to invoke {} with raw_args {:?}", target, &args);
+                    Some((target, args)) => {
+                        let mut args = Cow::Borrowed(args);
                         let target = self.eval(target)?;
                         match target {
                             Value::List(_) => self.call(&target, args.as_ref()),
@@ -478,16 +483,10 @@ impl Machine {
                                 if !builtin.is_macro {
                                     args = Cow::Owned(self.evaluate_args(&args)?);
                                 }
-                                trace!(
-                                    "invoking builtin {} with args {}",
-                                    builtin.name,
-                                    args.iter().join(", ")
-                                );
                                 (builtin.body)(&args, self, false)
                             }
                             other => {
-                                error!("uncallable value {}", other);
-                                Err(Error::UncallableValue(other.clone()))
+                                Err(Error::UncallableValue(other.contextualize(self)))
                             }
                         }
                     }
@@ -495,7 +494,7 @@ impl Machine {
             }
             Value::Builtin(v) => Ok(Value::Builtin(*v)),
             Value::Integer(v) => Ok(Value::Integer(*v)),
-            Value::Name((name, _)) => self.scope.lookup(name),
+            Value::Name(name) => self.scope.lookup(name),
         }
     }
 }
@@ -508,7 +507,7 @@ mod test {
         machine::{ArgumentNames, CallInformation},
         parse_list, parse_value,
         util::dummy_machine,
-        value::{List, Value},
+        value::{NodePtr, Value},
     };
 
     #[test]
@@ -528,7 +527,7 @@ mod test {
             machine.call_information(&nadic_function, &args),
             Ok(CallInformation {
                 argument_names: ArgumentNames::NAdic(vec![args_name]),
-                arguments: Cow::Owned(List::from_iter(&machine.pool, vec![42.into()])),
+                arguments: Cow::Owned(NodePtr::from_iter(&machine.pool, vec![42.into()])),
                 body: &args_name.into(),
             })
         );
@@ -536,7 +535,7 @@ mod test {
             machine.call_information(&variadic_function, &args),
             Ok(CallInformation {
                 argument_names: ArgumentNames::Variadic(args_name),
-                arguments: Cow::Owned(List::from_iter(&machine.pool, vec![42.into()])),
+                arguments: Cow::Owned(NodePtr::from_iter(&machine.pool, vec![42.into()])),
                 body: &args_name.into(),
             })
         );
@@ -544,7 +543,7 @@ mod test {
             machine.call_information(&nadic_macro, &args),
             Ok(CallInformation {
                 argument_names: ArgumentNames::NAdic(vec![args_name]),
-                arguments: Cow::Owned(List::from_iter(
+                arguments: Cow::Owned(NodePtr::from_iter(
                     &machine.pool,
                     vec![Value::from_iter(
                         &machine.pool,
@@ -558,7 +557,7 @@ mod test {
             machine.call_information(&variadic_macro, &args),
             Ok(CallInformation {
                 argument_names: ArgumentNames::Variadic(args_name),
-                arguments: Cow::Owned(List::from_iter(
+                arguments: Cow::Owned(NodePtr::from_iter(
                     &machine.pool,
                     vec![Value::from_iter(
                         &machine.pool,

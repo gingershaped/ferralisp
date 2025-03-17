@@ -49,7 +49,7 @@ impl Debug for LocalScope {
         writeln!(f, "LocalScope {{")?;
         self.scope(|scope| {
             for (key, value) in scope.iter() {
-                writeln!(f, "    {} = {}", key.into_inner(), value)?;
+                writeln!(f, "    {} = {:?}", key.into_inner(), value)?;
             }
             Ok(())
         })?;
@@ -90,7 +90,7 @@ impl GlobalScope {
     }
 
     pub fn insert(&mut self, key: HashlessMiniSpur, value: Value) {
-        trace!("defining new global {} = {}", key.into_inner(), value);
+        trace!("defining new global {} = {:?}", key.into_inner(), value);
         self.globals.insert(key, value);
     }
 
@@ -135,7 +135,7 @@ impl Debug for GlobalScope {
 
         writeln!(f, "  globals:")?;
         for (key, value) in self.globals.iter() {
-            writeln!(f, "    {} = {}", key.into_inner(), value)?;
+            writeln!(f, "    {} = {:?}", key.into_inner(), value)?;
         }
         writeln!(f)?;
 
@@ -147,7 +147,7 @@ impl Debug for GlobalScope {
                     writeln!(f, "    <empty>")?;
                 } else {
                     for (key, value) in scope.iter() {
-                        writeln!(f, "    {} = {}", key.into_inner(), value)?;
+                        writeln!(f, "    {} = {:?}", key.into_inner(), value)?;
                     }
                 }
                 writeln!(f)?;
