@@ -476,14 +476,10 @@ impl Machine {
                     None => Ok(Value::nil()),
                     // otherwise it's a function call
                     Some((target, args)) => {
-                        let mut args = Cow::Borrowed(args);
                         let target = self.eval(target)?;
                         match target {
-                            Value::List(_) => self.call(&target, args.as_ref()),
+                            Value::List(_) => self.call(&target, args),
                             Value::Builtin(builtin) => {
-                                if !builtin.is_macro {
-                                    args = Cow::Owned(self.evaluate_args(&args)?);
-                                }
                                 (builtin.body)(&args, self, false)
                             }
                             other => {

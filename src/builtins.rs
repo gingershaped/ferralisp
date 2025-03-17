@@ -47,7 +47,7 @@ macro_rules! builtin_inner {
             inlined: false,
             #[allow(unused_variables, unused_mut)]
             body: |args, $machine, _| {
-                builtin_arguments!($alias, args, $machine, ($($arg)*));
+                builtin_arguments!($alias, args, $machine, $is_macro, ($($arg)*));
                 $body
             }
         })
@@ -59,7 +59,7 @@ macro_rules! builtin_inner {
             inlined: false,
             #[allow(unused_variables)]
             body: |args, $machine, $tce_active| {
-                builtin_arguments!($alias, args, $machine, ($($arg)*));
+                builtin_arguments!($alias, args, $machine, $is_macro, ($($arg)*));
                 $body
             }
         })
@@ -67,12 +67,12 @@ macro_rules! builtin_inner {
 }
 
 macro_rules! builtin_arguments {
-    ($alias:ident, $args:ident, $machine:ident, (*$varargs:ident)) => {
+    ($alias:ident, $args:ident, $machine:ident, $is_macro:literal, (*$varargs:ident)) => {
         let $varargs = $args;
     };
-    ($alias:ident, $args:ident, $machine:ident, ($($argname:tt: $argtype:tt),*)) => {
+    ($alias:ident, $args:ident, $machine:ident, $is_macro:literal, ($($argname:tt: $argtype:tt),*)) => {
         let mut $args = $args.into_iter();
-        $(builtin_argument!($alias, $args, $machine, $argname: $argtype);)*
+        $(builtin_argument!($alias, $args, $machine, $is_macro, $argname: $argtype);)*
         if let Some(value) = $args.next() {
             let mut arguments = vec![value.clone()];
             arguments.extend($args.cloned());
@@ -85,31 +85,44 @@ macro_rules! builtin_arguments {
 }
 
 macro_rules! builtin_argument {
-    ($alias:ident, $args:ident, $machine:ident, $name:ident: any) => {
+    ($alias:ident, $args:ident, $machine:ident, $is_macro:literal, $name:ident: any) => {
         #[allow(unused_mut)]
         let mut $name = $args
             .next()
-            .cloned()
             .ok_or_else(|| Error::MissingArgument {
                 name: Some(stringify!($name).to_string()),
                 call_target: Value::Builtin(crate::builtins::BUILTINS[stringify!($alias)]).contextualize($machine),
                 expected_type: Some("any".to_string()),
+            })
+            .and_then(|arg| {
+                if $is_macro {
+                    Ok(arg.clone())
+                } else {
+                    $machine.eval(arg)
+                }
             })?;
     };
-    ($alias:ident, $args:ident, $machine:ident, $name:ident: $argtype:path) => {
+    ($alias:ident, $args:ident, $machine:ident, $is_macro:literal, $name:ident: $argtype:path) => {
         #[allow(unused_imports)]
         use Value::*;
         let arg = $args.next();
         #[allow(unused_mut)]
         let mut $name = match arg {
-            Some(arg) => match arg {
-                $argtype(value) => Ok(value),
-                other => Err(Error::WrongBuiltinArgumentType {
-                    alias: stringify!($alias),
-                    name: stringify!($name),
-                    expected_type: stringify!($argtype),
-                    value: other.contextualize($machine),
-                }),
+            Some(arg) => {
+                let arg = if $is_macro {
+                    arg.clone()
+                } else {
+                    $machine.eval(arg)?
+                };
+                match arg {
+                    $argtype(value) => Ok(value),
+                    other => Err(Error::WrongBuiltinArgumentType {
+                        alias: stringify!($alias),
+                        name: stringify!($name),
+                        expected_type: stringify!($argtype),
+                        value: other.contextualize($machine),
+                    }),
+                }
             },
             None => Err(Error::MissingArgument {
                 name: Some(stringify!($name).to_owned()),
@@ -118,20 +131,27 @@ macro_rules! builtin_argument {
             }),
         }?;
     };
-    ($alias:ident, $args:ident, $machine:ident, ($raw:ident -> $name:ident): $argtype:path) => {
+    ($alias:ident, $args:ident, $machine:ident, $is_macro:literal, ($raw:ident -> $name:ident): $argtype:path) => {
         #[allow(unused_imports)]
         use Value::*;
         let arg = $args.next().cloned();
         #[allow(unused_mut)]
         let ($raw, mut $name) = match &arg {
-            Some(arg) => match arg {
-                $argtype(value, ..) => Ok((arg, value)),
-                other => Err(Error::WrongBuiltinArgumentType {
-                    alias: stringify!($alias),
-                    name: stringify!($name),
-                    expected_type: stringify!($argtype),
-                    value: other.contextualize($machine),
-                }),
+            Some(arg) => {
+                let arg = if $is_macro {
+                    arg.clone()
+                } else {
+                    $machine.eval(arg)?
+                };
+                match arg {
+                    $argtype(value, ..) => Ok((arg, value)),
+                    other => Err(Error::WrongBuiltinArgumentType {
+                        alias: stringify!($alias),
+                        name: stringify!($name),
+                        expected_type: stringify!($argtype),
+                        value: other.contextualize($machine),
+                    }),
+                }
             },
             None => Err(Error::MissingArgument {
                 name: Some(stringify!($name).to_owned()),
@@ -246,7 +266,7 @@ pub static BUILTINS: LazyLock<HashMap<&'static str, Builtin>> = LazyLock::new(||
                 match machine.scope.global_lookup(&name) {
                     None => {
                         let new_value = machine.eval(&new_value)?;
-                        machine.scope.insert(*name, new_value);
+                        machine.scope.insert(name, new_value);
                         Ok(name_raw.clone())
                     }
                     Some(current_value) => {
@@ -261,7 +281,7 @@ pub static BUILTINS: LazyLock<HashMap<&'static str, Builtin>> = LazyLock::new(||
         },
         builtin! {
             macro load(machine, path: Name) as load {
-                let path = machine.resolve_name(path).expect("unbound name passed to (load)");
+                let path = machine.resolve_name(&path).expect("unbound name passed to (load)");
                 machine.load(path)
             }
         },
