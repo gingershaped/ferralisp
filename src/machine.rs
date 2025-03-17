@@ -13,7 +13,7 @@ use crate::{
     parser::Expression,
     scope::GlobalScope,
     util::or_fallback,
-    value::{ContextValue, HashlessMiniSpur, Node, NodePtr, Value},
+    value::{ContextValue, HashlessSpur, Node, NodePtr, Value},
 };
 
 #[derive(Error, Debug, PartialEq)]
@@ -116,8 +116,8 @@ pub struct ModuleLoad {
 
 #[derive(Debug, PartialEq)]
 enum ArgumentNames {
-    NAdic(Vec<HashlessMiniSpur>),
-    Variadic(HashlessMiniSpur),
+    NAdic(Vec<HashlessSpur>),
+    Variadic(HashlessSpur),
 }
 
 #[derive(Debug, PartialEq)]
@@ -127,7 +127,7 @@ struct CallInformation<'a> {
     body: &'a Value,
 }
 
-pub type Interner = RefCell<Rodeo<HashlessMiniSpur>>;
+pub type Interner = RefCell<Rodeo<HashlessSpur>>;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, clap::ValueEnum)]
 #[repr(u8)]
@@ -231,7 +231,7 @@ impl Machine {
         Value::Name(self.interner.borrow_mut().get_or_intern(string))
     }
 
-    pub fn resolve_name(&self, name: &HashlessMiniSpur) -> Option<String> {
+    pub fn resolve_name(&self, name: &HashlessSpur) -> Option<String> {
         self.interner.borrow().try_resolve(name).map(|v| v.to_string())
     }
 
@@ -377,6 +377,7 @@ impl Machine {
     /// call stack. certain builtins (those marked as `tce` in `builtins.rs`) may also be used
     /// without disabling this optimization.
     #[instrument(ret)]
+    #[inline(always)]
     fn call(&mut self, call_target: &Value, raw_args: &NodePtr) -> ValueResult {
         // all of this is mutable so TCE can update it
         let mut call_info = self.call_information(call_target, raw_args)?;

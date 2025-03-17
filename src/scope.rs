@@ -12,10 +12,10 @@ use tracing::trace;
 use crate::{
     builtins::BUILTINS,
     machine::{Error, Interner, ValueResult},
-    value::{HashlessMiniSpur, Value},
+    value::{HashlessSpur, Value},
 };
 
-type Scope = IntMap<HashlessMiniSpur, Value>;
+type Scope = IntMap<HashlessSpur, Value>;
 type Locals = Rc<RefCell<Vec<Scope>>>;
 
 pub struct LocalScope {
@@ -28,7 +28,7 @@ impl LocalScope {
         f(scopes.last_mut().expect("local scope stack underflow"))
     }
 
-    pub fn insert(&mut self, key: HashlessMiniSpur, value: Value) {
+    pub fn insert(&mut self, key: HashlessSpur, value: Value) {
         self.scope(|scope| scope.insert(key, value));
     }
 
@@ -89,7 +89,7 @@ impl GlobalScope {
         scope
     }
 
-    pub fn insert(&mut self, key: HashlessMiniSpur, value: Value) {
+    pub fn insert(&mut self, key: HashlessSpur, value: Value) {
         trace!("defining new global {} = {:?}", key.into_inner(), value);
         self.globals.insert(key, value);
     }
@@ -102,7 +102,7 @@ impl GlobalScope {
         }
     }
 
-    pub fn lookup(&self, name: &HashlessMiniSpur) -> ValueResult {
+    pub fn lookup(&self, name: &HashlessSpur) -> ValueResult {
         self.locals
             .borrow()
             .last()
@@ -124,7 +124,7 @@ impl GlobalScope {
             .cloned()
     }
 
-    pub fn global_lookup(&self, name: &HashlessMiniSpur) -> Option<&Value> {
+    pub fn global_lookup(&self, name: &HashlessSpur) -> Option<&Value> {
         self.globals.get(*name)
     }
 }

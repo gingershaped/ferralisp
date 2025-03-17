@@ -15,7 +15,7 @@ use std::{
     rc::{Rc, Weak},
 };
 
-use lasso::MiniSpur;
+use lasso::Spur;
 use refpool::{Pool, PoolDefault, PoolRef};
 use strum_macros::IntoStaticStr;
 
@@ -33,7 +33,7 @@ pub enum Value {
     List(NodePtr),
     Builtin(Builtin),
     Integer(i64),
-    Name(HashlessMiniSpur),
+    Name(HashlessSpur),
 }
 
 impl Value {
@@ -102,8 +102,8 @@ impl From<i64> for Value {
     }
 }
 
-impl From<HashlessMiniSpur> for Value {
-    fn from(value: HashlessMiniSpur) -> Self {
+impl From<HashlessSpur> for Value {
+    fn from(value: HashlessSpur) -> Self {
         Value::Name(value)
     }
 }
@@ -306,16 +306,16 @@ impl NodePtr {
 
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
 #[repr(transparent)]
-pub struct HashlessMiniSpur(MiniSpur);
+pub struct HashlessSpur(Spur);
 
-impl HashlessMiniSpur {
+impl HashlessSpur {
     #[inline]
-    pub const fn into_inner(&self) -> NonZero<u16> {
+    pub const fn into_inner(&self) -> NonZero<u32> {
         self.0.into_inner()
     }
 }
 
-unsafe impl lasso::Key for HashlessMiniSpur {
+unsafe impl lasso::Key for HashlessSpur {
     #[inline]
     fn into_usize(self) -> usize {
         self.0.into_usize()
@@ -323,14 +323,14 @@ unsafe impl lasso::Key for HashlessMiniSpur {
 
     #[inline]
     fn try_from_usize(int: usize) -> Option<Self> {
-        MiniSpur::try_from_usize(int).map(Self)
+        Spur::try_from_usize(int).map(Self)
     }
 }
 
-impl intmap::IntKey for HashlessMiniSpur {
-    type Int = u16;
+impl intmap::IntKey for HashlessSpur {
+    type Int = u32;
 
-    const PRIME: Self::Int = u16::PRIME;
+    const PRIME: Self::Int = u32::PRIME;
 
     #[inline(always)]
     fn into_int(self) -> Self::Int {
@@ -338,7 +338,7 @@ impl intmap::IntKey for HashlessMiniSpur {
     }
 }
 
-impl Debug for HashlessMiniSpur {
+impl Debug for HashlessSpur {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         self.0.fmt(f)
     }
